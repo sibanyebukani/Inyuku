@@ -1,5 +1,7 @@
+'use client'
+
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router'
+import Link from 'next/link'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { useGSAP } from '@gsap/react'
@@ -209,8 +211,7 @@ function HeroSection() {
         </p>
 
         <div ref={ctaRef} className="mt-10 flex flex-wrap items-center justify-center gap-4">
-          <Link
-            to="/platform"
+          <Link href="/platform"
             className="px-8 py-4 rounded-lg text-[15px] font-semibold transition-all duration-250 hover:scale-[1.02] active:scale-[0.98]"
             style={{
               backgroundColor: '#FFFFFF',
@@ -219,8 +220,7 @@ function HeroSection() {
           >
             Explore the Platform
           </Link>
-          <Link
-            to="/impact"
+          <Link href="/impact"
             className="px-8 py-4 rounded-lg text-[15px] font-semibold text-white transition-all duration-250 hover:scale-[1.02] active:scale-[0.98]"
             style={{
               border: '1.5px solid rgba(255,255,255,0.4)',
@@ -545,8 +545,7 @@ function PlatformSection() {
               <p className="mt-4 text-[16px] leading-relaxed text-text-secondary flex-1">
                 {feature.description}
               </p>
-              <Link
-                to={feature.link}
+              <Link href={feature.link}
                 className="mt-6 inline-flex items-center text-[15px] font-semibold text-accent-orange hover:underline"
               >
                 Learn More &rarr;
@@ -631,8 +630,7 @@ function ProofPointsSection() {
               </li>
             ))}
           </ul>
-          <Link
-            to="/impact"
+          <Link href="/impact"
             className="mt-8 inline-flex items-center text-[15px] font-semibold text-accent-orange hover:underline"
           >
             Explore Our Impact Data &rarr;
@@ -866,15 +864,13 @@ function CTASection() {
           }}
           className="mt-10 flex flex-wrap items-center justify-center gap-4"
         >
-          <Link
-            to="/platform"
+          <Link href="/platform"
             className="px-8 py-4 rounded-lg text-[15px] font-bold transition-all duration-250 hover:scale-[1.02] active:scale-[0.98]"
             style={{ backgroundColor: '#FFFFFF', color: '#E86A34' }}
           >
             Get Started Free
           </Link>
-          <Link
-            to="/about"
+          <Link href="/about"
             className="px-8 py-4 rounded-lg text-[15px] font-semibold text-white transition-all duration-250 hover:scale-[1.02] active:scale-[0.98]"
             style={{
               border: '1.5px solid rgba(255,255,255,0.6)',
