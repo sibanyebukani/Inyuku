@@ -213,7 +213,7 @@ function DonutChartGSAP() {
   const hasAnimated = useRef(false)
 
   const circumference = 2 * Math.PI * 120 // r=120
-  const targetOffset = circumference * 0.9 // 90%
+  const targetOffset = circumference * 0.1 // 90% filled (offset = 10% of the ring)
 
   useGSAP(() => {
     if (!circleRef.current || !containerRef.current || !valueRef.current) return
