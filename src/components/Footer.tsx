@@ -1,4 +1,6 @@
-import { Link } from 'react-router'
+'use client'
+
+import Link from 'next/link'
 
 const platformLinks = [
   { label: 'WhatsApp Commerce', path: '/platform' },
@@ -43,7 +45,7 @@ export default function Footer() {
           </p>
           <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
             <Link
-              to="/platform"
+              href="/platform"
               className="px-8 py-4 rounded-lg text-[15px] font-bold transition-all duration-250 hover:scale-[1.02] active:scale-[0.98]"
               style={{
                 backgroundColor: '#FFFFFF',
@@ -53,7 +55,7 @@ export default function Footer() {
               Get Started Free
             </Link>
             <Link
-              to="/about"
+              href="/about"
               className="px-8 py-4 rounded-lg text-[15px] font-semibold text-white transition-all duration-250 hover:scale-[1.02] active:scale-[0.98]"
               style={{
                 border: '1.5px solid rgba(255,255,255,0.4)',
@@ -71,7 +73,7 @@ export default function Footer() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-12">
           {/* Col 1: Logo + Mission */}
           <div>
-            <Link to="/" className="text-[22px] font-extrabold text-[#F6F2EC] tracking-[-0.02em]">
+            <Link href="/" className="text-[22px] font-extrabold text-[#F6F2EC] tracking-[-0.02em]">
               Inyuku
             </Link>
             <p className="mt-4 text-[14px] leading-relaxed" style={{ color: '#78716C' }}>
@@ -86,7 +88,7 @@ export default function Footer() {
               {platformLinks.map((link) => (
                 <li key={link.label}>
                   <Link
-                    to={link.path}
+                    href={link.path}
                     className="text-[14px] transition-colors duration-200 hover:text-[#F6F2EC]"
                     style={{ color: '#78716C' }}
                   >
@@ -104,7 +106,7 @@ export default function Footer() {
               {companyLinks.map((link) => (
                 <li key={link.label}>
                   <Link
-                    to={link.path}
+                    href={link.path}
                     className="text-[14px] transition-colors duration-200 hover:text-[#F6F2EC]"
                     style={{ color: '#78716C' }}
                   >
@@ -122,7 +124,7 @@ export default function Footer() {
               {resourceLinks.map((link) => (
                 <li key={link.label}>
                   <Link
-                    to={link.path}
+                    href={link.path}
                     className="text-[14px] transition-colors duration-200 hover:text-[#F6F2EC]"
                     style={{ color: '#78716C' }}
                   >
@@ -143,10 +145,10 @@ export default function Footer() {
             &copy; {new Date().getFullYear()} Inyuku Digital. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
-            <Link to="/" className="text-[13px] transition-colors duration-200 hover:text-[#F6F2EC]" style={{ color: '#78716C' }}>
+            <Link href="/" className="text-[13px] transition-colors duration-200 hover:text-[#F6F2EC]" style={{ color: '#78716C' }}>
               Privacy Policy
             </Link>
-            <Link to="/" className="text-[13px] transition-colors duration-200 hover:text-[#F6F2EC]" style={{ color: '#78716C' }}>
+            <Link href="/" className="text-[13px] transition-colors duration-200 hover:text-[#F6F2EC]" style={{ color: '#78716C' }}>
               Terms of Service
             </Link>
           </div>
