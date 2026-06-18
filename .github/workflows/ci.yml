@@ -18,9 +18,11 @@ jobs:
       - run: npm ci
       - name: Type check
         run: npm run typecheck
-      - name: Lint (non-blocking until M0-B removes vendored shadcn)
-        run: npm run lint || true
+      - name: Lint
+        run: npm run lint
+      - name: Test
+        run: npm run test
       - name: Build
         run: npm run build
-      - name: Audit (non-blocking until M0-B refreshes deps)
+      - name: Audit (non-blocking)
         run: npm audit --audit-level=moderate || true

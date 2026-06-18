@@ -5,8 +5,8 @@ WhatsApp commerce, digital payments, inventory, and an AI business assistant.
 
 ## Status
 
-Pre-migration baseline (Vite SPA). The resolved target (EA-ADR-014/015) is a
-**Next.js frontend (Vercel) + Express/Prisma backend (Railway) + Postgres (EU)**,
+Next.js (App Router) — migrated from the Vite baseline in M0-B. The resolved
+stack (EA-ADR-014/015) is a **Next.js frontend (Vercel) + Express/Prisma backend (Railway) + Postgres (EU)**,
 in-house JWT auth, TradeSafe escrow, 360dialog WhatsApp, Claude via `lib/ai.js`.
 See `docs/superpowers/specs/2026-06-18-inyuku-full-platform-roadmap-design.md`
 for the program roadmap, `docs/DECISIONS.md` for the architecture ADRs, and
@@ -30,10 +30,11 @@ npm run dev                  # http://localhost:3000
 
 | Script | Purpose |
 |---|---|
-| `npm run dev` | Start the dev server |
+| `npm run dev` | Start the Next.js dev server |
 | `npm run build` | Type-check and production build |
 | `npm run typecheck` | Type-check only |
-| `npm run lint` | Lint (currently fails on vendored shadcn code; resolved in M0-B) |
+| `npm run lint` | Lint (Next.js ESLint, blocking in CI) |
+| `npm run test` | Run Vitest unit tests |
 | `npm run preview` | Preview the production build |
 
 ## Documentation
