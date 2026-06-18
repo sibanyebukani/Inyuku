@@ -1,5 +1,7 @@
+'use client'
+
 import { useState, useRef } from 'react'
-import { Link } from 'react-router'
+import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
@@ -217,8 +219,7 @@ function SolutionSection({
         ))}
       </div>
       <div className="reveal-item mt-6">
-        <Link
-          to="/platform"
+        <Link href="/platform"
           className="inline-flex items-center gap-2 text-[15px] font-semibold transition-all duration-200 hover:gap-3"
           style={{ color: ctaColor }}
         >
@@ -474,15 +475,13 @@ function CtaSection() {
           Inyuku Digital adapts to your specific business type, workflow, and language. Set up takes 5 minutes, and the core features are free forever.
         </p>
         <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-          <Link
-            to="/platform"
+          <Link href="/platform"
             className="cta-btn px-8 py-4 rounded-lg text-[15px] font-bold transition-all duration-250 hover:scale-[1.02] active:scale-[0.98]"
             style={{ backgroundColor: '#FFFFFF', color: '#E86A34' }}
           >
             Get Started Free
           </Link>
-          <Link
-            to="/platform"
+          <Link href="/platform"
             className="cta-btn px-8 py-4 rounded-lg text-[15px] font-semibold text-white transition-all duration-250 hover:scale-[1.02] active:scale-[0.98]"
             style={{ border: '1.5px solid rgba(255,255,255,0.4)', backgroundColor: 'transparent' }}
           >

@@ -1,5 +1,7 @@
+'use client'
+
 import { useRef, useEffect } from 'react'
-import { Link } from 'react-router'
+import Link from 'next/link'
 import { motion } from 'framer-motion'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
@@ -223,8 +225,7 @@ function PlatformHero() {
           transition={{ duration: 0.8, delay: 0.9, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] }}
           className="mt-10 flex flex-wrap items-center gap-4"
         >
-          <Link
-            to="/platform"
+          <Link href="/platform"
             className="inline-flex items-center px-8 py-4 rounded-lg text-[15px] font-semibold transition-all duration-250 hover:scale-[1.02] active:scale-[0.98]"
             style={{ backgroundColor: '#FFFFFF', color: '#E86A34' }}
           >
@@ -717,15 +718,13 @@ function PlatformCTA() {
           transition={{ duration: 0.8, delay: 0.4, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] }}
           className="mt-10 flex flex-wrap items-center justify-center gap-4"
         >
-          <Link
-            to="/platform"
+          <Link href="/platform"
             className="inline-flex items-center px-8 py-4 rounded-lg text-[15px] font-semibold text-white transition-all duration-250 hover:scale-[1.02] active:scale-[0.98]"
             style={{ backgroundColor: '#E86A34' }}
           >
             Create Free Account
           </Link>
-          <Link
-            to="/about"
+          <Link href="/about"
             className="inline-flex items-center px-8 py-4 rounded-lg text-[15px] font-semibold text-white transition-all duration-250 hover:scale-[1.02]"
             style={{ border: '1.5px solid rgba(255,255,255,0.4)', backgroundColor: 'transparent' }}
           >

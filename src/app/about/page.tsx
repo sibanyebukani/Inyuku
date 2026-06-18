@@ -1,3 +1,5 @@
+'use client'
+
 import { useRef } from 'react';
 import { motion } from 'framer-motion';
 import gsap from 'gsap';
@@ -11,7 +13,7 @@ import {
   BarChart3,
   HandHeart,
 } from 'lucide-react';
-import { Link } from 'react-router';
+import Link from 'next/link'
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -877,8 +879,7 @@ function CTASection() {
           variants={staggerContainer}
         >
           <motion.div variants={fadeInUp} transition={{ duration: 0.8, ease: easeOutExpo }}>
-            <Link
-              to="/platform"
+            <Link href="/platform"
               className="inline-block px-8 py-4 rounded-lg text-[15px] font-semibold text-white transition-all duration-250 hover:scale-[1.02] active:scale-[0.98]"
               style={{ backgroundColor: '#E86A34' }}
               onMouseEnter={(e) => {
@@ -894,8 +895,7 @@ function CTASection() {
             </Link>
           </motion.div>
           <motion.div variants={fadeInUp} transition={{ duration: 0.8, ease: easeOutExpo }}>
-            <Link
-              to="/about"
+            <Link href="/about"
               className="inline-block px-8 py-4 rounded-lg text-[15px] font-semibold transition-all duration-250 hover:scale-[1.02] active:scale-[0.98]"
               style={{
                 border: '1.5px solid rgba(255,255,255,0.4)',
@@ -915,8 +915,7 @@ function CTASection() {
             </Link>
           </motion.div>
           <motion.div variants={fadeInUp} transition={{ duration: 0.8, ease: easeOutExpo }}>
-            <Link
-              to="/about"
+            <Link href="/about"
               className="inline-block px-8 py-4 rounded-lg text-[15px] font-semibold transition-all duration-250 hover:scale-[1.02] active:scale-[0.98]"
               style={{
                 border: '1.5px solid rgba(255,255,255,0.4)',
