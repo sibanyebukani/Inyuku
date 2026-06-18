@@ -2,6 +2,7 @@
 
 import { useRef, useEffect } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { motion } from 'framer-motion'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
@@ -178,10 +179,13 @@ function PlatformHero() {
         className="absolute inset-0"
         style={{ transformOrigin: 'center center' }}
       >
-        <img
+        <Image
           src="/platform-hero.jpg"
           alt="Shopkeeper with smartphone"
-          className="w-full h-full object-cover"
+          fill
+          sizes="100vw"
+          className="object-cover"
+          priority
         />
         <div
           className="absolute inset-0"
@@ -570,10 +574,12 @@ function PaymentsSection() {
             transition={{ duration: 1.0, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] }}
             className="relative"
           >
-            <img
+            <Image
               src="/solutions-spaza.jpg"
               alt="Spaza shop interior with card terminal"
-              className="w-full h-[400px] md:h-[500px] object-cover rounded-[20px]"
+              fill
+              sizes="(max-width: 768px) 100vw, 50vw"
+              className="object-cover rounded-[20px]"
             />
             <StatOverlayGSAP />
           </motion.div>

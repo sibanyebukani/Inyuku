@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState, useEffect } from 'react'
+import Image from 'next/image'
 import { motion } from 'framer-motion'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
@@ -375,10 +376,13 @@ function ImpactHero() {
         className="absolute inset-0"
         style={{ transformOrigin: 'center center' }}
       >
-        <img
+        <Image
           src="/impact-hero.jpg"
           alt="Busy South African informal trading market"
-          className="w-full h-full object-cover"
+          fill
+          sizes="100vw"
+          className="object-cover"
+          priority
         />
         <div
           className="absolute inset-0"

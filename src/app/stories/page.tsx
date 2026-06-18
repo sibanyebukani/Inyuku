@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import Image from 'next/image'
 import { motion, AnimatePresence } from 'framer-motion'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
@@ -94,7 +95,7 @@ function ImageReveal({
 
   return (
     <div ref={imgRef} className={`overflow-hidden rounded-[20px] relative ${className}`}>
-      <img src={src} alt={alt} className="w-full h-full object-cover" />
+      <Image src={src} alt={alt} fill sizes="(max-width: 768px) 100vw, 50vw" className="object-cover" />
       {caption && (
         <div
           className="absolute bottom-0 left-0 right-0 p-6 text-[13px] font-medium"

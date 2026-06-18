@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { motion, AnimatePresence } from 'framer-motion'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
@@ -130,8 +131,8 @@ function ImageReveal({ src, alt, className }: { src: string; alt: string; classN
   }, { scope: imgRef })
 
   return (
-    <div ref={imgRef} className={`overflow-hidden rounded-[20px] ${className}`}>
-      <img src={src} alt={alt} className="w-full h-full object-cover" />
+    <div ref={imgRef} className={`relative overflow-hidden rounded-[20px] ${className}`}>
+      <Image src={src} alt={alt} fill sizes="(max-width: 768px) 100vw, 50vw" className="object-cover" />
     </div>
   )
 }

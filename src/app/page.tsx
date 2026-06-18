@@ -6,9 +6,12 @@ import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { useGSAP } from '@gsap/react'
 import { motion } from 'framer-motion'
+import Image from 'next/image'
 import { WhatsAppIcon, CardIcon, AIIcon, CheckmarkIcon } from '@/components/icons'
 
 gsap.registerPlugin(ScrollTrigger)
+
+const MotionImage = motion(Image)
 
 /* ──────────────────────── Easing Token ──────────────────────── */
 const easeOutArray = [0.22, 1, 0.36, 1] as [number, number, number, number]
@@ -637,11 +640,13 @@ function ProofPointsSection() {
           </Link>
         </div>
 
-        <div className="proof-right-image rounded-2xl overflow-hidden h-full min-h-[400px]">
-          <img
+        <div className="proof-right-image relative rounded-2xl overflow-hidden h-full min-h-[400px]">
+          <Image
             src="/hero-bg.jpg"
             alt="South African township street level"
-            className="w-full h-full object-cover"
+            fill
+            sizes="(max-width: 1024px) 100vw, 40vw"
+            className="object-cover"
           />
         </div>
       </div>
@@ -728,11 +733,13 @@ function CaseStudySection() {
               transition={{ duration: 0.3 }}
               className="bg-white border border-border-light rounded-2xl overflow-hidden"
             >
-              <div className="aspect-[3/2] overflow-hidden">
-                <motion.img
+              <div className="aspect-[3/2] overflow-hidden relative">
+                <MotionImage
                   src={story.image}
                   alt={story.name}
-                  className="w-full h-full object-cover"
+                  fill
+                  sizes="(max-width: 768px) 100vw, 33vw"
+                  className="object-cover"
                   initial={{ scale: 1.03 }}
                   whileInView={{ scale: 1 }}
                   viewport={{ once: true }}

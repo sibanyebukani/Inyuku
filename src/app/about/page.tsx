@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef } from 'react';
+import Image from 'next/image';
 import { motion } from 'framer-motion';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
@@ -78,10 +79,13 @@ function HeroSection() {
       className="relative w-full min-h-[70vh] flex items-center overflow-hidden"
     >
       <div className="about-hero-bg absolute inset-0">
-        <img
+        <Image
           src="/about-team.jpg"
           alt="Team collaboration"
-          className="w-full h-full object-cover"
+          fill
+          sizes="100vw"
+          className="object-cover"
+          priority
         />
         <div
           className="absolute inset-0"
