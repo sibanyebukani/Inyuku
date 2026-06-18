@@ -659,12 +659,17 @@ function BannerStat({
 }: {
   value: number; prefix: string; suffix: string; trigger: boolean
 }) {
-  const count = useCountUp(Math.floor(value * 10), 1.5, trigger)
-  const display = suffix === ',000' ? Math.floor(count / 10) * 1000 : (count / 10).toFixed(1)
+  const isThousands = suffix === ',000'
+  // thousands stats hold a "k" value (910 → 910,000); decimal stats (e.g. 2.9B) keep one decimal
+  const target = isThousands ? value * 1000 : Math.round(value * 10)
+  const count = useCountUp(target, 1.5, trigger)
+  const display = isThousands
+    ? new Intl.NumberFormat('en-ZA').format(count) // 910000 → "910,000"
+    : (count / 10).toFixed(1)
 
   return (
     <span className="text-[40px] md:text-[64px] lg:text-[96px] font-black leading-none tracking-[-0.04em] text-accent-orange">
-      {prefix}{display}{suffix === ',000' ? ',000' : suffix}
+      {prefix}{display}{isThousands ? '' : suffix}
     </span>
   )
 }
