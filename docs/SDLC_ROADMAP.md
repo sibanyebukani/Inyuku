@@ -1,3 +1,10 @@
+> ⚠️ **SUPERSEDED — see `docs/superpowers/specs/2026-06-18-inyuku-full-platform-roadmap-design.md`
+> + `docs/DECISIONS.md` (EA-ADR-014/015).** The stack and sequencing have changed:
+> **Clerk and Supabase no longer apply** — the platform is a Next.js client + Express/Prisma backend on
+> Railway (Postgres 16 EU-pinned, Redis 7, Cloudflare R2), in-house JWT auth, TradeSafe escrow, 360dialog,
+> Claude via `lib/ai.js`. This document is **retained as the technical-debt inventory of the original
+> marketing site** — do not use it as the build plan.
+
 # Inyuku Digital — Full SDLC Roadmap to Production
 
 > **Purpose:** Move the current static marketing SPA to a fully functioning, deployable, maintainable application with all the IT, architecture, and engineering practices required for production.

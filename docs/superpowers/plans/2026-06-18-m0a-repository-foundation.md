@@ -281,9 +281,11 @@ WhatsApp commerce, digital payments, inventory, and an AI business assistant.
 
 ## Status
 
-Pre-migration baseline (Vite SPA). The active plan migrates this to Next.js +
-Clerk + Supabase. See `docs/superpowers/specs/2026-06-18-inyuku-full-platform-roadmap-design.md`
-for the program roadmap and `docs/superpowers/plans/` for milestone plans.
+Pre-migration baseline (Vite SPA). The active plan migrates this to a
+**Next.js frontend (Vercel) + Express/Prisma backend (Railway) + Postgres (EU)**.
+See `docs/superpowers/specs/2026-06-18-inyuku-full-platform-roadmap-design.md`
+for the program roadmap, `docs/DECISIONS.md` (EA-ADR-014/015) for the resolved
+stack, and `docs/superpowers/plans/` for milestone plans.
 
 ## Requirements
 

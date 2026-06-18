@@ -151,8 +151,9 @@ The single roadmap becomes **5 tracks**, sequenced by milestone.
   auto-replies, webhook ingestion.
 
 ### M4 — Digital payments (~6–8 weeks)
-- *Gated by Track E: PCI scope confirmed (provider-hosted → SAQ-A) and POPIA gate passed.*
-- Payment links + card reader (Yoco), settlement, transaction history.
+- *Gated by Track E: PCI confirmed (TradeSafe-hosted → SAQ-A), POPIA §72/sub-processor gate passed, TradeSafe go-live.*
+- **TradeSafe escrow** for remote/WhatsApp-commerce orders (payment links, split payments, settlement,
+  Allocations), transaction history. Inyuku never holds funds. **In-person/card-present POS deferred.**
 - **Payments-grade QA:** idempotency, reconciliation, no-double-charge, webhook replay.
 - Begin capturing verified transaction history (the credit-data foundation; **no lending**).
 
