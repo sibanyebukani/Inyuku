@@ -13,14 +13,13 @@ const companyLinks = [
   { label: 'About Us', path: '/about' },
   { label: 'Our Impact', path: '/impact' },
   { label: 'Success Stories', path: '/stories' },
-  { label: 'Careers', path: '/about' },
+  { label: 'Partners', path: '/partners' },
 ]
 
 const resourceLinks = [
-  { label: 'Help Center', path: '/platform' },
-  { label: 'Developer API', path: '/platform' },
-  { label: 'Partner Program', path: '/about' },
-  { label: 'Contact', path: '/about' },
+  { label: 'Help Center', path: '/help' },
+  { label: 'Partner Program', path: '/partners' },
+  { label: 'Contact', path: '/contact' },
 ]
 
 export default function Footer() {
@@ -145,10 +144,10 @@ export default function Footer() {
             &copy; {new Date().getFullYear()} Inyuku Digital. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
-            <Link href="/" className="text-[13px] transition-colors duration-200 hover:text-[#F6F2EC]" style={{ color: '#78716C' }}>
+            <Link href="/privacy" className="text-[13px] transition-colors duration-200 hover:text-[#F6F2EC]" style={{ color: '#78716C' }}>
               Privacy Policy
             </Link>
-            <Link href="/" className="text-[13px] transition-colors duration-200 hover:text-[#F6F2EC]" style={{ color: '#78716C' }}>
+            <Link href="/terms" className="text-[13px] transition-colors duration-200 hover:text-[#F6F2EC]" style={{ color: '#78716C' }}>
               Terms of Service
             </Link>
           </div>
