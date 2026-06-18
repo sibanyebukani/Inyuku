@@ -730,121 +730,7 @@ function ValuesSection() {
   );
 }
 
-/* ─────────────────────── Section 7: Team ─────────────────────── */
-
-const teamMembers = [
-  {
-    name: 'Team Lead',
-    role: 'Founder & CEO',
-    focus: 'Strategy, partnerships, government relations',
-  },
-  {
-    name: 'Tech Lead',
-    role: 'CTO',
-    focus: 'Platform architecture, AI/ML, product engineering',
-  },
-  {
-    name: 'Community Lead',
-    role: 'Head of Community',
-    focus: 'Township outreach, onboarding, user research',
-  },
-  {
-    name: 'Product Lead',
-    role: 'Head of Product',
-    focus: 'UX design, feature roadmap, user experience',
-  },
-];
-
-function TeamSection() {
-  return (
-    <section
-      className="w-full"
-      style={{ backgroundColor: '#F6F2EC', padding: '96px 24px' }}
-    >
-      <div className="max-w-[1000px] mx-auto">
-        {/* Heading */}
-        <motion.div
-          className="text-center mb-12 max-w-[640px] mx-auto"
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, amount: 0.3 }}
-          variants={staggerContainer}
-        >
-          <motion.p
-            className="text-[13px] font-medium uppercase tracking-[0.08em] mb-4"
-            style={{ color: '#78716C' }}
-            variants={fadeInUp}
-            transition={{ duration: 0.8, ease: easeOutExpo }}
-          >
-            The Team
-          </motion.p>
-          <motion.h2
-            className="text-[28px] md:text-[48px] font-bold leading-[1.1] tracking-[-0.02em] text-text-primary"
-            variants={fadeInUp}
-            transition={{ duration: 0.8, ease: easeOutExpo }}
-          >
-            Building for South Africa, by South Africans
-          </motion.h2>
-          <motion.p
-            className="mt-4 text-[16px] leading-relaxed text-text-secondary"
-            variants={fadeInUp}
-            transition={{ duration: 0.8, ease: easeOutExpo }}
-          >
-            Our team combines deep expertise in technology, business, and
-            community development — all grounded in lived experience of South
-            Africa's economic realities.
-          </motion.p>
-        </motion.div>
-
-        {/* Team Grid */}
-        <motion.div
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8"
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, amount: 0.2 }}
-          variants={staggerContainer}
-        >
-          {teamMembers.map((member) => (
-            <motion.div
-              key={member.name}
-              className="flex flex-col items-center text-center"
-              variants={fadeInUp}
-              transition={{ duration: 0.8, ease: easeOutExpo }}
-            >
-              {/* Avatar placeholder */}
-              <motion.div
-                className="w-[120px] h-[120px] rounded-full flex items-center justify-center"
-                style={{
-                  backgroundColor: '#E7E5E4',
-                  border: '3px solid #FFFFFF',
-                  boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
-                }}
-                whileHover={{ scale: 1.05 }}
-                transition={{ duration: 0.3 }}
-              >
-                <Users size={40} style={{ color: '#78716C' }} />
-              </motion.div>
-              <h3 className="mt-4 text-[22px] md:text-[32px] font-semibold leading-[1.2] tracking-[-0.01em] text-text-primary">
-                {member.name}
-              </h3>
-              <p
-                className="mt-1 text-[13px] font-medium uppercase tracking-[0.08em]"
-                style={{ color: '#E86A34' }}
-              >
-                {member.role}
-              </p>
-              <p className="mt-2 text-[16px] leading-relaxed" style={{ color: '#78716C' }}>
-                {member.focus}
-              </p>
-            </motion.div>
-          ))}
-        </motion.div>
-      </div>
-    </section>
-  );
-}
-
-/* ─────────────────────── Section 8: CTA ─────────────────────── */
+/* ─────────────────────── Section 7: CTA ─────────────────────── */
 
 function CTASection() {
   return (
@@ -964,7 +850,6 @@ export default function About() {
       <PartnershipsSection />
       <EvidenceSection />
       <ValuesSection />
-      <TeamSection />
       <CTASection />
     </>
   );
