@@ -783,8 +783,22 @@ function ScalePotential() {
 
 /* ─────────────── Section 7: CTA — Download Report ─────────────── */
 
+const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 function ReportCTA() {
   const [email, setEmail] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [submitted, setSubmitted] = useState(false)
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!emailRe.test(email)) {
+      return setError('Please enter a valid email address.')
+    }
+    setError(null)
+    // TODO(M1): POST { email, source: 'impact_report' } to /api/leads once the backend is live.
+    setSubmitted(true)
+  }
 
   return (
     <section className="py-[64px] md:py-[96px]" style={{ backgroundColor: '#1A1A1A' }}>
@@ -809,34 +823,49 @@ function ReportCTA() {
           Download our comprehensive impact report with full economic modeling, research methodology, and detailed breakdowns of the GDP contribution data.
         </motion.p>
 
-        <motion.form
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, amount: 0.5 }}
-          transition={{ duration: 0.8, delay: 0.3, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] }}
-          className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3"
-          onSubmit={(e) => e.preventDefault()}
-        >
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Enter your email"
-            className="w-full sm:w-auto flex-1 max-w-[360px] px-5 py-4 rounded-lg text-[15px] text-[#F6F2EC] placeholder:text-[#78716C] outline-none focus:ring-2 focus:ring-[#E86A34]"
-            style={{
-              backgroundColor: '#2A2A2A',
-              border: '1px solid rgba(255,255,255,0.2)',
-            }}
-          />
-          <button
-            type="submit"
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-4 rounded-lg text-[15px] font-semibold text-white transition-all duration-250 hover:scale-[1.02] active:scale-[0.98]"
-            style={{ backgroundColor: '#E86A34' }}
+        {submitted ? (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-10 rounded-lg border border-[#2D7A3E]/40 bg-[#2D7A3E]/10 px-6 py-4 text-[#F6F2EC]"
           >
-            <Download className="w-5 h-5" />
-            Download Report
-          </button>
-        </motion.form>
+            <p className="text-[16px] font-medium">Thanks — your report request has been received.</p>
+          </motion.div>
+        ) : (
+          <motion.form
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.5 }}
+            transition={{ duration: 0.8, delay: 0.3, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] }}
+            className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3"
+            onSubmit={handleSubmit}
+          >
+            <div className="w-full sm:w-auto flex-1 max-w-[360px] text-left">
+              <label htmlFor="impact-report-email" className="sr-only">Email address</label>
+              <input
+                id="impact-report-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Enter your email"
+                className="w-full px-5 py-4 rounded-lg text-[15px] text-[#F6F2EC] placeholder:text-[#78716C] outline-none focus:ring-2 focus:ring-[#E86A34]"
+                style={{
+                  backgroundColor: '#2A2A2A',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                }}
+              />
+              {error && <p role="alert" className="mt-1.5 text-[13px] text-red-400">{error}</p>}
+            </div>
+            <button
+              type="submit"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-4 rounded-lg text-[15px] font-semibold text-white transition-all duration-250 hover:scale-[1.02] active:scale-[0.98]"
+              style={{ backgroundColor: '#E86A34' }}
+            >
+              <Download className="w-5 h-5" />
+              Download Report
+            </button>
+          </motion.form>
+        )}
 
         <motion.p
           initial={{ opacity: 0 }}

@@ -429,6 +429,7 @@ function ShareStorySection() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    // TODO(M1): POST { ...formState, source: 'share_story' } to /api/leads once the backend is live.
     setSubmitted(true)
   }
 
@@ -480,8 +481,9 @@ function ShareStorySection() {
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-[14px] font-medium text-text-primary mb-1.5">Your Name</label>
+                  <label htmlFor="story-name" className="block text-[14px] font-medium text-text-primary mb-1.5">Your Name</label>
                   <input
+                    id="story-name"
                     type="text"
                     required
                     value={formState.name}
@@ -502,8 +504,9 @@ function ShareStorySection() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[14px] font-medium text-text-primary mb-1.5">Business Name</label>
+                  <label htmlFor="story-business-name" className="block text-[14px] font-medium text-text-primary mb-1.5">Business Name</label>
                   <input
+                    id="story-business-name"
                     type="text"
                     required
                     value={formState.businessName}
@@ -524,8 +527,9 @@ function ShareStorySection() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[14px] font-medium text-text-primary mb-1.5">Business Type</label>
+                  <label htmlFor="story-business-type" className="block text-[14px] font-medium text-text-primary mb-1.5">Business Type</label>
                   <select
+                    id="story-business-type"
                     required
                     value={formState.businessType}
                     onChange={(e) => setFormState((s) => ({ ...s, businessType: e.target.value }))}
@@ -554,8 +558,9 @@ function ShareStorySection() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[14px] font-medium text-text-primary mb-1.5">Your Story</label>
+                  <label htmlFor="story-story" className="block text-[14px] font-medium text-text-primary mb-1.5">Your Story</label>
                   <textarea
+                    id="story-story"
                     required
                     rows={4}
                     value={formState.story}
