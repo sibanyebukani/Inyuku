@@ -22,3 +22,4 @@ out
 # Logs
 *.log
 npm-debug.log*
+tsconfig.tsbuildinfo
