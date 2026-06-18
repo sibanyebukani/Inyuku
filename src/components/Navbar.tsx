@@ -1,5 +1,8 @@
+'use client'
+
 import { useState } from 'react'
-import { Link, useLocation } from 'react-router'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { Menu, X } from 'lucide-react'
 
 const navLinks = [
@@ -13,7 +16,7 @@ const navLinks = [
 
 export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false)
-  const location = useLocation()
+  const pathname = usePathname()
 
   return (
     <nav
@@ -27,7 +30,7 @@ export default function Navbar() {
       <div className="max-w-[1280px] mx-auto w-full px-6 flex items-center justify-between">
         {/* Logo */}
         <Link
-          to="/"
+          href="/"
           className="text-[22px] font-extrabold tracking-[-0.02em] text-text-primary"
         >
           Inyuku
@@ -36,20 +39,20 @@ export default function Navbar() {
         {/* Desktop Nav Links */}
         <div className="hidden md:flex items-center gap-1">
           {navLinks.map((link) => {
-            const isActive = location.pathname === link.path
+            const isActive = pathname === link.path
             return (
               <Link
                 key={link.path}
-                to={link.path}
+                href={link.path}
                 className="relative px-4 py-2 text-[14px] font-medium transition-colors duration-200 rounded-md"
                 style={{
                   color: isActive ? '#1A1A1A' : '#444444',
                   fontWeight: isActive ? 600 : 500,
                 }}
-                onMouseEnter={(e) => {
+                onMouseEnter={(e: React.MouseEvent<HTMLAnchorElement>) => {
                   if (!isActive) e.currentTarget.style.color = '#E86A34'
                 }}
-                onMouseLeave={(e) => {
+                onMouseLeave={(e: React.MouseEvent<HTMLAnchorElement>) => {
                   if (!isActive) e.currentTarget.style.color = '#444444'
                 }}
               >
@@ -67,14 +70,14 @@ export default function Navbar() {
 
         {/* Desktop CTA */}
         <Link
-          to="/platform"
+          href="/platform"
           className="hidden md:inline-flex items-center px-6 py-3 rounded-lg text-[14px] font-semibold text-white transition-all duration-250 hover:scale-[1.02] active:scale-[0.98]"
           style={{ backgroundColor: '#E86A34' }}
-          onMouseEnter={(e) => {
+          onMouseEnter={(e: React.MouseEvent<HTMLAnchorElement>) => {
             e.currentTarget.style.backgroundColor = '#D15A28'
             e.currentTarget.style.boxShadow = '0 4px 20px rgba(232, 106, 52, 0.25)'
           }}
-          onMouseLeave={(e) => {
+          onMouseLeave={(e: React.MouseEvent<HTMLAnchorElement>) => {
             e.currentTarget.style.backgroundColor = '#E86A34'
             e.currentTarget.style.boxShadow = 'none'
           }}
@@ -101,7 +104,7 @@ export default function Navbar() {
           {navLinks.map((link) => (
             <Link
               key={link.path}
-              to={link.path}
+              href={link.path}
               className="text-[28px] font-bold text-text-primary"
               onClick={() => setMobileOpen(false)}
             >
@@ -109,7 +112,7 @@ export default function Navbar() {
             </Link>
           ))}
           <Link
-            to="/platform"
+            href="/platform"
             className="mt-4 px-8 py-4 rounded-lg text-[16px] font-semibold text-white"
             style={{ backgroundColor: '#E86A34' }}
             onClick={() => setMobileOpen(false)}
