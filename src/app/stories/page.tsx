@@ -252,9 +252,9 @@ const stories: StoryData[] = [
 ]
 
 const categoryFilterMap: Record<string, string[]> = {
-  'thabo': ['All Stories', 'Artisans'],
-  'nomsa': ['All Stories', 'Catering'],
-  'david': ['All Stories', 'Retail'],
+  artisans: ['All Stories', 'Artisans'],
+  catering: ['All Stories', 'Catering'],
+  retail: ['All Stories', 'Retail'],
 }
 
 function FeaturedStory({ story }: { story: StoryData }) {
@@ -686,6 +686,12 @@ export default function Stories() {
           ) : null
         )}
       </AnimatePresence>
+
+      {stories.filter((s) => isStoryVisible(s.storyKey)).length === 0 && (
+        <p className="col-span-full text-center text-[16px] text-text-secondary py-12">
+          No stories in this category yet — check back soon.
+        </p>
+      )}
 
       {/* ─────────────── Section 5: Community Voices ─────────────── */}
       <CommunityVoicesSection />
