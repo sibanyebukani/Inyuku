@@ -86,7 +86,6 @@ export async function auditLog(input: AuditLogInput): Promise<void> {
   } catch (e) {
     // Never throw from the audit logger — drop the event but make it loud.
     // Mask the input before logging to avoid leaking raw PII into platform logs.
-    // eslint-disable-next-line no-console
     console.error('[audit-logger] failed:', {
       event: maskPII(input),
       error: e instanceof Error ? e.message : e,

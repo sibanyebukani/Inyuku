@@ -16,7 +16,7 @@
 
 import { createReadStream } from 'fs';
 import { mkdir, writeFile, readFile, unlink, stat } from 'fs/promises';
-import { dirname, join, resolve, sep } from 'path';
+import { dirname, resolve, sep } from 'path';
 import { Readable } from 'stream';
 import {
   S3Client,

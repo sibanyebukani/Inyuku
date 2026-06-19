@@ -7,8 +7,11 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  frontend:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,3 +29,60 @@ jobs:
         run: npm run build
       - name: Audit (non-blocking)
         run: npm audit --audit-level=moderate || true
+
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: inyuku
+          POSTGRES_PASSWORD: inyuku
+          POSTGRES_DB: inyuku_dev
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+    env:
+      DATABASE_URL: postgresql://inyuku:inyuku@localhost:5432/inyuku_dev
+      REDIS_URL: redis://localhost:6379
+      ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+      BLOB_SIGN_SECRET: ${{ secrets.BLOB_SIGN_SECRET }}
+      R2_ENDPOINT: https://fake.r2.cloudflarestorage.com
+      R2_PUBLIC_BASE_URL: https://fake-public.inyuku.co.za
+      CORS_ALLOWED_ORIGINS: '*.inyuku.co.za'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+      - name: Type check
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: OpenAPI drift check
+        run: npm run openapi:check

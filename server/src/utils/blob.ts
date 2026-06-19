@@ -5,7 +5,7 @@
  */
 
 import { createHmac } from 'node:crypto';
-import { deleteObject, isHttpUrl, storageDriver } from './storage.js';
+import { deleteObject, isHttpUrl } from './storage.js';
 
 // H8 — dedicated secret for blob-proxy URL signing (decoupled from JWT_SECRET / ENCRYPTION_KEY)
 function getSignSecret(): string {
