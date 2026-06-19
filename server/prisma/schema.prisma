@@ -1,0 +1,277 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MembershipRole {
+  MERCHANT_OWNER
+  MERCHANT_STAFF
+  ADMIN
+  SUPPORT
+  AI_AGENT
+
+  @@map("membership_role")
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING_DELETION
+
+  @@map("user_status")
+}
+
+enum BusinessStatus {
+  ACTIVE
+  SUSPENDED
+
+  @@map("business_status")
+}
+
+enum ConsentStatus {
+  GRANTED
+  REVOKED
+
+  @@map("consent_status")
+}
+
+enum LeadSource {
+  CONTACT
+  IMPACT_REPORT
+  SHARE_STORY
+
+  @@map("lead_source")
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  CLOSED
+  SPAM
+
+  @@map("lead_status")
+}
+
+model User {
+  id                  String              @id @default(cuid()) @map("id")
+  email               String              @unique @map("email")
+  name                String              @map("name")
+  phone               String?             @map("phone")
+  passwordHash        String              @map("password_hash")
+  status              UserStatus          @default(ACTIVE) @map("status")
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
+
+  memberships         Membership[]
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  phoneOtps           PhoneOtp[]
+  auditLogs           AuditLog[]
+  consents            Consent[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid()) @map("id")
+  tokenHash String    @map("token_hash")
+  userId    String    @map("user_id")
+  familyId  String    @map("family_id")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid()) @map("id")
+  userId    String    @map("user_id")
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_reset_tokens")
+}
+
+model PhoneOtp {
+  id         String    @id @default(cuid()) @map("id")
+  userId     String?   @map("user_id")
+  phone      String    @map("phone")
+  codeHash   String    @map("code_hash")
+  attempts   Int       @default(0) @map("attempts")
+  expiresAt  DateTime  @map("expires_at")
+  verifiedAt DateTime? @map("verified_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("phone_otps")
+}
+
+model Business {
+  id        String         @id @default(cuid()) @map("id")
+  name      String         @map("name")
+  status    BusinessStatus @default(ACTIVE) @map("status")
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
+
+  memberships Membership[]
+  consents    Consent[]
+  aiUsages    AiUsage[]
+  auditLogs   AuditLog[]
+  errorLogs   ErrorLog[]
+  permissions Permission[]
+
+  @@map("businesses")
+}
+
+model Membership {
+  id         String         @id @default(cuid()) @map("id")
+  userId     String         @map("user_id")
+  businessId String         @map("business_id")
+  role       MembershipRole @default(MERCHANT_STAFF) @map("role")
+  permissions String[]      @map("permissions")
+  createdAt  DateTime       @default(now()) @map("created_at")
+  updatedAt  DateTime       @updatedAt @map("updated_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, businessId])
+  @@map("memberships")
+}
+
+model Permission {
+  id          String   @id @default(cuid()) @map("id")
+  key         String   @unique @map("key")
+  description String?  @map("description")
+  businessId  String?  @map("business_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  business Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@map("permissions")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid()) @map("id")
+  userId    String?  @map("user_id")
+  businessId String? @map("business_id")
+  action    String   @map("action")
+  entity    String   @map("entity")
+  entityId  String?  @map("entity_id")
+  changes   Json?    @map("changes")
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user     User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  business Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}
+
+model ErrorLog {
+  id         String   @id @default(cuid()) @map("id")
+  businessId String?  @map("business_id")
+  code       String   @map("code")
+  message    String   @map("message")
+  stack      String?  @map("stack")
+  context    Json?    @map("context")
+  commitSha  String?  @map("commit_sha")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  business Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+
+  @@map("error_logs")
+}
+
+model Setting {
+  id        String   @id @default(cuid()) @map("id")
+  key       String   @map("key")
+  value     String   @map("value")
+  isSecret  Boolean  @default(false) @map("is_secret")
+  businessId String  @map("business_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([key, businessId])
+  @@map("settings")
+}
+
+model Consent {
+  id        String        @id @default(cuid()) @map("id")
+  businessId String       @map("business_id")
+  userId    String?       @map("user_id")
+  purpose   String        @map("purpose")
+  status    ConsentStatus @default(GRANTED) @map("status")
+  grantedAt DateTime      @default(now()) @map("granted_at")
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
+
+  business     Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user         User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+  revocations  ConsentRevocation[]
+
+  @@map("consents")
+}
+
+model ConsentRevocation {
+  id        String   @id @default(cuid()) @map("id")
+  consentId String   @map("consent_id")
+  reason    String?  @map("reason")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  consent Consent @relation(fields: [consentId], references: [id], onDelete: Cascade)
+
+  @@map("consent_revocations")
+}
+
+model AiUsage {
+  id        String   @id @default(cuid()) @map("id")
+  businessId String  @map("business_id")
+  feature   String   @map("feature")
+  tier      String   @map("tier")
+  model     String   @map("model")
+  tokens    Int?     @map("tokens")
+  costCents Int      @default(0) @map("cost_cents")
+  cacheHit  Boolean? @map("cache_hit")
+  latencyMs Int?     @map("latency_ms")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@map("ai_usage")
+}
+
+model Lead {
+  id        String     @id @default(cuid()) @map("id")
+  source    LeadSource @map("source")
+  status    LeadStatus @default(NEW) @map("status")
+  name      String?    @map("name")
+  email     String?    @map("email")
+  message   String?    @map("message")
+  payload   Json?      @map("payload")
+  ip        String?    @map("ip")
+  ua        String?    @map("ua")
+  consent   Boolean?   @map("consent")
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  @@map("leads")
+}
