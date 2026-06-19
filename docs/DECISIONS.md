@@ -345,3 +345,31 @@ trust boundary). Secret values are **never returned in plaintext** unless the ca
 ### Alternatives rejected
 - Keeping the chassis two-table split (two code paths, two encryption postures). Env-only secrets (not
   hot-swappable; no per-tenant scope; no audit).
+
+---
+
+## ADR-INY-012 — Repo layout: backend in `server/`, frontend at repo root
+
+**Date:** 2026-06-19
+**Status:** Accepted
+**Decided by:** bukani-architect (Inyuku)
+**References:** EA-ADR-014 (amended 2026-06-19), EA-ADR-016
+
+### Context
+The project ships two independent deployables: a Next.js marketing/PWA frontend on Vercel and a Fastify
+backend on Railway. They have different runtimes, dependencies, build steps, and deploy cadences.
+
+### Decision
+The backend lives in a new top-level **`server/`** package with its own `package.json`, `Dockerfile`, and
+TypeScript build. The existing Next.js frontend remains at the repo root. The two packages are not npm
+workspaces — each installs/builds/deploys independently — and CI runs a second job scoped to `server/`.
+
+### Consequences
+- Clear runtime boundary between frontend client and backend system-of-record.
+- The backend can vend-in the DrAppv2 Fastify chassis without polluting the frontend dependency tree.
+- CI/CD remains simple (two jobs) until a monorepo tool is justified later.
+
+### Alternatives rejected
+- npm/pnpm workspace (adds complexity before it is needed; independent deployables do not benefit from
+  workspace linking at this stage).
+- Backend inside `src/server` of the Next.js app (would blur the pure-client boundary).

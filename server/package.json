@@ -1,0 +1,48 @@
+{
+  "name": "inyuku-api",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20 <23" },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "db:seed": "tsx prisma/seed.ts",
+    "openapi:check": "tsx scripts/openapi-drift.ts"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "fastify": "^5",
+    "@fastify/helmet": "^12",
+    "@fastify/cors": "^10",
+    "@fastify/cookie": "^11",
+    "@fastify/swagger": "^9",
+    "@fastify/swagger-ui": "^5",
+    "fastify-type-provider-zod": "^4",
+    "zod": "^3",
+    "@prisma/client": "^6",
+    "ioredis": "^5",
+    "@aws-sdk/client-s3": "^3",
+    "bcryptjs": "^2",
+    "resend": "^4"
+  },
+  "devDependencies": {
+    "prisma": "^6",
+    "tsx": "^4",
+    "typescript": "~5.9",
+    "vitest": "^2",
+    "eslint": "^9",
+    "@eslint/js": "^9",
+    "typescript-eslint": "^8",
+    "@types/node": "^24",
+    "@types/bcryptjs": "^2"
+  }
+}
