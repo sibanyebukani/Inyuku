@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { jsonSchemaTransform, serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import { AppError } from './utils/errors.js';
 import { errorEnvelope } from './utils/route-helpers.js';
+import healthRoutes from './routes/health.routes.js';
 
 export interface BuildAppOptions {
   corsAllowedOrigins?: string[];
@@ -60,6 +61,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     routePrefix: '/v1/docs',
     uiConfig: { docExpansion: 'list' },
   });
+
+  void app.register(healthRoutes);
 
   app.setNotFoundHandler((_req, reply) => {
     reply.code(404).send(errorEnvelope('NOT_FOUND', 'Route not found'));
