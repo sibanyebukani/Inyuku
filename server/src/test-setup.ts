@@ -6,3 +6,6 @@ process.env.ENCRYPTION_KEY ||= 'MDEyMzQ1Njc4OWFiY2RlZmdoaWprbG1ub3BxcnN0dXY=' //
 process.env.BLOB_SIGN_SECRET ||= 'test-blob-sign-secret'
 process.env.R2_ENDPOINT ||= 'https://abc123.r2.cloudflarestorage.com'
 process.env.R2_PUBLIC_BASE_URL ||= 'https://cdn.inyuku.co.za'
+process.env.JWT_SECRET ||= 'test-jwt-secret-must-be-32-bytes-long!!'
+process.env.JWT_SECRET_PREVIOUS ||= 'previous-test-jwt-secret-32bytes!!'
+process.env.JWT_REFRESH_SECRET ||= 'test-refresh-secret-must-be-32-bytes!!'
