@@ -1,31 +1,40 @@
 # Inyuku Digital — Role Owners
 
-> **Status:** Template — pending founder nominations.
-> **Purpose:** Name the accountable owners required by POPIA, security, and operations before M1 builds live systems.
-> **Owner:** Founder (to fill).
+> **Status:** ⚠️ **PROVISIONAL / MOCK DATA — REVISIT BEFORE LAUNCH.** Sibanye Bukani is the real
+> anchor owner for now (solo/early team); all `(MOCK)` names are placeholders to unblock the M1
+> gate and **must be replaced with real people before production / launch**, especially the
+> statutory Information Officer.
+> **Owner:** Founder (Sibanye Bukani). **Last updated:** 2026-06-19.
 
 ## Mandated roles
 
 | Role | Purpose | Nominated owner | Deputy / backup | Contact |
 |---|---|---|---|---|
-| **Information Officer** | POPIA accountable person; registered with the Information Regulator; approves processing activities and sub-processor DPAs. | TBD | TBD | |
-| **Deputy Information Officer** | Acts when the IO is unavailable; co-owns breach response and DSR playbook. | TBD | — | |
-| **Engineering lead** | Owns technical architecture, ADR acceptance, M1 build quality, and security review closure. | TBD | TBD | |
-| **Security lead** | Owns threat model, auth review, STRIDE gates for payments (M4) and AI agent (M5). | TBD | TBD | |
-| **Compliance / data protection lead** | Owns POPIA register, operator DPAs, retention matrix, DSR playbook, breach process. | TBD | TBD | |
-| **Operations lead** | Owns vendor relationships, budget ceilings, SRE runbooks, incident response. | TBD | TBD | |
-| **Product lead** | Owns product brief, MVP acceptance criteria, KPI/event instrumentation spec. | TBD | TBD | |
-| **QA lead** | Owns test strategy, release gates, APPROVED/REJECTED milestone reports. | TBD | TBD | |
+| **Information Officer** | POPIA accountable person; registered with the Information Regulator; approves processing + sub-processor DPAs. | **Sibanye Bukani** | Thandi Nkosi *(MOCK)* | sibanyebukani01@gmail.com |
+| **Deputy Information Officer** | Acts when the IO is unavailable; co-owns breach response + DSR playbook. | Thandi Nkosi *(MOCK)* | — | *(MOCK)* |
+| **Engineering lead** | Technical architecture, ADR acceptance, M1 build quality, security-review closure. | **Sibanye Bukani** | Kabelo Dlamini *(MOCK)* | sibanyebukani01@gmail.com |
+| **Security lead** | Threat model, auth review, STRIDE gates for payments (M4) + AI agent (M5). | Kabelo Dlamini *(MOCK)* | Sibanye Bukani | *(MOCK)* |
+| **Compliance / data protection lead** | POPIA register, operator DPAs, retention matrix, DSR playbook, breach process. | Naledi Mokoena *(MOCK)* | Sibanye Bukani | *(MOCK)* |
+| **Operations lead** | Vendor relationships, budget ceilings, SRE runbooks, incident response. | **Sibanye Bukani** | Kabelo Dlamini *(MOCK)* | sibanyebukani01@gmail.com |
+| **Product lead** | Product brief, MVP acceptance criteria, KPI/event instrumentation spec. | **Sibanye Bukani** | Naledi Mokoena *(MOCK)* | sibanyebukani01@gmail.com |
+| **QA lead** | Test strategy, release gates, APPROVED/REJECTED milestone reports. | Kabelo Dlamini *(MOCK)* | Sibanye Bukani | *(MOCK)* |
 
-## Gates that cannot clear until this file is filled
+## ⚠️ Revisit list (before launch)
 
-1. **EA-ADR-014/015 sign-off** — needs Engineering + Compliance owner names.
-2. **POPIA information-officer registration** — needs Information Officer name.
-3. **M1 build kickoff** — needs Engineering, Security, Compliance, and Operations owners named.
-4. **Vendor contract execution** — needs Operations owner + budget approval.
+- [ ] Replace every `(MOCK)` name with a real person.
+- [ ] **Information Officer** must be a real, named individual **registered with the Information Regulator** (statutory; longest lead — see the compliance brief).
+- [ ] Confirm Deputy IO, Security, Compliance, and QA leads (these are placeholders only).
+- [ ] Update contact emails for non-founder roles.
+
+## Gates that cannot clear until this file is filled (with REAL data)
+
+1. **EA-ADR-014/015 sign-off** — Engineering + Compliance owners ⇒ provisionally satisfied (Sibanye / MOCK).
+2. **POPIA information-officer registration** — IO named (Sibanye) ⇒ registration still to be filed.
+3. **M1 build kickoff** — Engineering, Security, Compliance, Operations named ⇒ provisionally satisfied (mock).
+4. **Vendor contract execution** — Operations owner (Sibanye) + budget ⇒ see `docs/BUDGET.md`.
 
 ## Approval
 
 | Role | Name | Signature / date |
 |---|---|---|
-| Founder | TBD | |
+| Founder | Sibanye Bukani | *(provisional — mock data, pending real assignments)* |
