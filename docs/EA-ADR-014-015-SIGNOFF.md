@@ -58,6 +58,13 @@ Notes: ______________________________________________
 
 | | Name | Decision | Date |
 |---|---|---|---|
-| Founder | Sibanye Bukani | ☐ Both approved | __________ |
+| Founder | Sibanye Bukani | ☑ **Both approved** | **2026-06-19** |
 
-**On approval:** tell me and I'll flip the Status lines on EA-ADR-014/015 to "Signed (founder, <date>)", which clears **M1 gate #4**. The remaining M1 gates are independent: #1 domain, #2 budget (`docs/BUDGET.md`), #3 owners (`docs/OWNERS.md`), #5 Meta/360dialog + TradeSafe kickoff.
+**Signed 2026-06-19.** EA-ADR-014 and EA-ADR-015 Status lines flipped to SIGNED in
+`/home/sibnaye/Development/bukani-decisions.md`. **M1 gate #4 is CLEARED.**
+
+> EA-ADR-015's pre-production-PII condition (sub-processor risk assessment + signed operator DPAs)
+> **remains in force** — sign-off approved the posture, not a waiver. See `docs/compliance/COMPLIANCE_TASK_BRIEF.md`.
+
+Remaining M1 gates (independent): #1 domain (provisional `inyuku.co.za`), #2 budget (mock, `docs/BUDGET.md`),
+#3 owners (mock, `docs/OWNERS.md`), #5 Meta/360dialog + TradeSafe + POPIA kickoff.
