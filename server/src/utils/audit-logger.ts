@@ -5,9 +5,12 @@ import { maskEmail, maskPII, maskPhone, maskSAID } from './pii-mask.js';
 export type AuditAction =
   | 'SIGNUP'
   | 'LOGIN'
+  | 'LOGIN_FAILED'
   | 'LOGOUT'
   | 'REFRESH'
   | 'PASSWORD_RESET'
+  | 'PASSWORD_RESET_REQUESTED'
+  | 'PASSWORD_CHANGE'
   | 'CREATE'
   | 'UPDATE'
   | 'DELETE'

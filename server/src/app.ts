@@ -9,6 +9,7 @@ import { jsonSchemaTransform, serializerCompiler, validatorCompiler } from 'fast
 import { AppError } from './utils/errors.js';
 import { errorEnvelope } from './utils/route-helpers.js';
 import healthRoutes from './routes/health.routes.js';
+import authRoutes from './routes/v1/auth.routes.js';
 import authMiddleware from './middleware/auth.middleware.js';
 import permissionGuard from './middleware/require-permission.js';
 
@@ -76,6 +77,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   });
 
   void app.register(healthRoutes);
+  void app.register(authRoutes, { prefix: '' });
 
   app.setNotFoundHandler((_req, reply) => {
     reply.code(404).send(errorEnvelope('NOT_FOUND', 'Route not found'));
