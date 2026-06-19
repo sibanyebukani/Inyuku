@@ -6,11 +6,12 @@ WhatsApp commerce, digital payments, inventory, and an AI business assistant.
 ## Status
 
 Next.js (App Router) — migrated from the Vite baseline in M0-B. The resolved
-stack (EA-ADR-014/015) is a **Next.js frontend (Vercel) + Express/Prisma backend (Railway) + Postgres (EU)**,
+stack (EA-ADR-014 amended/015/016) is a **Next.js frontend (Vercel) + Fastify 5 (TypeScript)/Prisma backend (Railway) + Postgres (EU)**,
 in-house JWT auth, TradeSafe escrow, 360dialog WhatsApp, Claude via `lib/ai.js`.
 See `docs/superpowers/specs/2026-06-18-inyuku-full-platform-roadmap-design.md`
-for the program roadmap, `docs/DECISIONS.md` for the architecture ADRs, and
-`docs/superpowers/plans/` for milestone plans.
+for the program roadmap, `docs/DECISIONS.md` for the architecture ADRs (incl.
+ADR-INY-008..011), `docs/API.md` + `docs/SCHEMA.md` for the M1 backend contracts,
+and `docs/superpowers/plans/` for milestone plans.
 
 ## Requirements
 
