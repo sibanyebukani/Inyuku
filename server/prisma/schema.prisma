@@ -64,6 +64,8 @@ model User {
   phone               String?             @map("phone")
   passwordHash        String              @map("password_hash")
   status              UserStatus          @default(ACTIVE) @map("status")
+  failedAttempts      Int                 @default(0) @map("failed_attempts")
+  lockedUntil         DateTime?           @map("locked_until")
   createdAt           DateTime            @default(now()) @map("created_at")
   updatedAt           DateTime            @updatedAt @map("updated_at")
 
@@ -78,14 +80,15 @@ model User {
 }
 
 model RefreshToken {
-  id        String    @id @default(cuid()) @map("id")
-  tokenHash String    @map("token_hash")
-  userId    String    @map("user_id")
-  familyId  String    @map("family_id")
-  expiresAt DateTime  @map("expires_at")
-  revokedAt DateTime? @map("revoked_at")
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
+  id          String    @id @default(cuid()) @map("id")
+  tokenHash   String    @map("token_hash")
+  userId      String    @map("user_id")
+  familyId    String    @map("family_id")
+  expiresAt   DateTime  @map("expires_at")
+  revokedAt   DateTime? @map("revoked_at")
+  replacedById String?  @map("replaced_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -110,6 +113,7 @@ model PhoneOtp {
   id         String    @id @default(cuid()) @map("id")
   userId     String?   @map("user_id")
   phone      String    @map("phone")
+  purpose    String?   @map("purpose")
   codeHash   String    @map("code_hash")
   attempts   Int       @default(0) @map("attempts")
   expiresAt  DateTime  @map("expires_at")
@@ -125,6 +129,7 @@ model PhoneOtp {
 model Business {
   id        String         @id @default(cuid()) @map("id")
   name      String         @map("name")
+  slug      String?        @unique @map("slug")
   status    BusinessStatus @default(ACTIVE) @map("status")
   createdAt DateTime       @default(now()) @map("created_at")
   updatedAt DateTime       @updatedAt @map("updated_at")
