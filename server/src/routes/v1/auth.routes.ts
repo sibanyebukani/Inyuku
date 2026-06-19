@@ -1,9 +1,15 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { signup, login, buildAuditContext } from '../../auth/auth.service.js';
-import { setAuthCookies } from '../../utils/auth-cookies.js';
+import {
+  signup,
+  login,
+  refresh,
+  logout,
+  buildAuditContext,
+} from '../../auth/auth.service.js';
+import { setAuthCookies, clearAuthCookies } from '../../utils/auth-cookies.js';
 import { okEnvelope } from '../../utils/route-helpers.js';
-import { RateLimitError } from '../../utils/errors.js';
+import { AuthError, RateLimitError } from '../../utils/errors.js';
 import { checkRateLimit } from '../../utils/rate-limit.js';
 import { getClientIpFromHeaders } from '../../utils/client-ip.js';
 
@@ -77,6 +83,46 @@ export default async function authRoutes(app: FastifyInstance) {
       const result = await login(req.body, buildAuditContext(req));
       setAuthCookies(reply, result.tokens);
       return okEnvelope({ user: result.user, memberships: result.memberships });
+    },
+  );
+
+  app.post(
+    '/v1/auth/refresh',
+    {
+      schema: {
+        response: {
+          200: z.object({ ok: z.literal(true), data: z.any() }),
+        },
+      },
+    },
+    async (req, reply) => {
+      const rawRefresh = req.cookies.inyuku_rt;
+      if (!rawRefresh) {
+        throw new AuthError('AUTH_MISSING_BEARER', 'Refresh token required');
+      }
+      const result = await refresh(rawRefresh, buildAuditContext(req));
+      setAuthCookies(reply, result.tokens);
+      return okEnvelope({ user: result.user, memberships: result.memberships });
+    },
+  );
+
+  app.post(
+    '/v1/auth/logout',
+    {
+      preHandler: [app.authenticate],
+      schema: {
+        response: {
+          200: z.object({ ok: z.literal(true), data: z.any() }),
+        },
+      },
+    },
+    async (req, reply) => {
+      const rawRefresh = req.cookies.inyuku_rt;
+      if (rawRefresh) {
+        await logout(rawRefresh, buildAuditContext(req));
+      }
+      clearAuthCookies(reply);
+      return okEnvelope({ loggedOut: true });
     },
   );
 }

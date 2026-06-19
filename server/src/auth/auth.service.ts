@@ -63,6 +63,12 @@ export interface LoginResult {
   tokens: AuthTokens;
 }
 
+export interface RefreshResult {
+  user: SafeUser;
+  memberships: AccessMembershipClaim[];
+  tokens: AuthTokens;
+}
+
 function toSafeUser(user: { id: string; email: string; name: string; phone: string | null; status: string }): SafeUser {
   return {
     id: user.id,
@@ -314,6 +320,120 @@ export async function login(
     memberships,
     tokens: { accessToken, refreshToken: refresh.token },
   };
+}
+
+export async function refresh(
+  rawRefreshToken: string,
+  auditCtx: AuditContext,
+): Promise<RefreshResult> {
+  const tokenHash = hashRefreshToken(rawRefreshToken);
+  const existing = await prisma.refreshToken.findUnique({
+    where: { tokenHash },
+    include: { user: true },
+  });
+
+  if (!existing) {
+    throw new AuthError('AUTH_INVALID_TOKEN', 'Invalid refresh token');
+  }
+
+  const now = new Date();
+
+  // Reuse detection: presenting a revoked/rotated token kills the whole family.
+  if (existing.revokedAt) {
+    await revokeFamily(existing.familyId);
+    await auditLog({
+      ...auditCtx,
+      userId: existing.userId,
+      entity: 'refresh_tokens',
+      action: 'REVOKE',
+      entityId: existing.familyId,
+    });
+    throw new AuthError(
+      'AUTH_REFRESH_REUSE',
+      'Refresh token reuse detected; family revoked',
+    );
+  }
+
+  if (existing.expiresAt < now) {
+    // Expired but not yet revoked — revoke it to be tidy.
+    await prisma.refreshToken.update({
+      where: { id: existing.id },
+      data: { revokedAt: now },
+    });
+    throw new AuthError('AUTH_INVALID_TOKEN', 'Refresh token expired');
+  }
+
+  // Rotate: create a new token in the same family and invalidate the old one.
+  const { token: newToken, tokenHash: newHash } = generateRefreshToken();
+  const newTokenRecord = await prisma.$transaction(async (tx) => {
+    const created = await tx.refreshToken.create({
+      data: {
+        tokenHash: newHash,
+        userId: existing.userId,
+        familyId: existing.familyId,
+        expiresAt: nowPlus(REFRESH_TTL_MS),
+      },
+      include: { user: true },
+    });
+    await tx.refreshToken.update({
+      where: { id: existing.id },
+      data: { revokedAt: now, replacedById: created.id },
+    });
+    return created;
+  });
+
+  const { accessToken, memberships } = await buildAccessToken(
+    newTokenRecord.userId,
+    newTokenRecord.user.email,
+    newTokenRecord.user.status,
+  );
+
+  await auditLog({
+    ...auditCtx,
+    userId: newTokenRecord.userId,
+    entity: 'auth',
+    action: 'REFRESH',
+    entityId: newTokenRecord.id,
+  });
+
+  return {
+    user: toSafeUser(newTokenRecord.user),
+    memberships,
+    tokens: { accessToken, refreshToken: newToken },
+  };
+}
+
+export async function logout(
+  rawRefreshToken: string,
+  auditCtx: AuditContext,
+): Promise<void> {
+  const tokenHash = hashRefreshToken(rawRefreshToken);
+  const existing = await prisma.refreshToken.findUnique({
+    where: { tokenHash },
+  });
+
+  if (existing) {
+    await revokeFamily(existing.familyId);
+    await auditLog({
+      ...auditCtx,
+      userId: existing.userId,
+      entity: 'auth',
+      action: 'LOGOUT',
+      entityId: existing.userId,
+    });
+  }
+}
+
+async function revokeFamily(familyId: string): Promise<void> {
+  await prisma.refreshToken.updateMany({
+    where: {
+      familyId,
+      revokedAt: null,
+    },
+    data: {
+      revokedAt: new Date(),
+    },
+  });
 }
 
 export function buildAuditContext(req: FastifyRequest): AuditContext {

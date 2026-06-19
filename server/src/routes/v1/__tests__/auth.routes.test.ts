@@ -16,8 +16,10 @@ afterEach(async () => {
     'signup-test@inyuku.test',
     'login-test@inyuku.test',
     'unknown@inyuku.test',
+    'refresh-test@inyuku.test',
+    'logout-test@inyuku.test',
   ]);
-  await cleanupTestBusinesses(['Signup Biz']);
+  await cleanupTestBusinesses(['Signup Biz', 'Refresh Biz', 'Logout Biz']);
 });
 
 describe('auth routes', () => {
@@ -148,5 +150,80 @@ describe('auth routes', () => {
     });
     expect(locked.statusCode).toBe(403);
     expect(locked.json()).toMatchObject({ ok: false, error: { code: 'AUTH_ACCOUNT_LOCKED' } });
+  });
+
+  it('refresh rotates token and reusing old token revokes family', async () => {
+    const signupRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/signup',
+      payload: {
+        email: 'refresh-test@inyuku.test',
+        password: 'Password123!',
+        name: 'Refresh User',
+        businessName: 'Refresh Biz',
+        acceptTerms: true,
+      },
+    });
+    expect(signupRes.statusCode).toBe(201);
+    const rt1 = signupRes.cookies.find((c) => c.name === 'inyuku_rt')!.value;
+
+    // First refresh: rt1 -> rt2
+    const refresh1 = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/refresh',
+      cookies: { inyuku_rt: rt1 },
+    });
+    expect(refresh1.statusCode).toBe(200);
+    const rt2 = refresh1.cookies.find((c) => c.name === 'inyuku_rt')!.value;
+    expect(rt2).not.toBe(rt1);
+
+    // Reuse rt1 -> family revoked, rt2 also dead
+    const reuse = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/refresh',
+      cookies: { inyuku_rt: rt1 },
+    });
+    expect(reuse.statusCode).toBe(401);
+    expect(reuse.json()).toMatchObject({ ok: false, error: { code: 'AUTH_REFRESH_REUSE' } });
+
+    const dead = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/refresh',
+      cookies: { inyuku_rt: rt2 },
+    });
+    expect(dead.statusCode).toBe(401);
+  });
+
+  it('logout revokes refresh family', async () => {
+    const signupRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/signup',
+      payload: {
+        email: 'logout-test@inyuku.test',
+        password: 'Password123!',
+        name: 'Logout User',
+        businessName: 'Logout Biz',
+        acceptTerms: true,
+      },
+    });
+    expect(signupRes.statusCode).toBe(201);
+    const at = signupRes.cookies.find((c) => c.name === 'inyuku_at')!.value;
+    const rt = signupRes.cookies.find((c) => c.name === 'inyuku_rt')!.value;
+
+    const logoutRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/logout',
+      cookies: { inyuku_at: at, inyuku_rt: rt },
+    });
+    expect(logoutRes.statusCode).toBe(200);
+    expect(logoutRes.cookies.some((c) => c.name === 'inyuku_at' && c.value === '')).toBe(true);
+    expect(logoutRes.cookies.some((c) => c.name === 'inyuku_rt' && c.value === '')).toBe(true);
+
+    const after = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/refresh',
+      cookies: { inyuku_rt: rt },
+    });
+    expect(after.statusCode).toBe(401);
   });
 });
