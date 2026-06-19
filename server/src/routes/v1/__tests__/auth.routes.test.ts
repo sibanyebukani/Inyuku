@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
+import { createHash, randomBytes } from 'node:crypto';
 import { buildApp } from '../../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../../db.js';
@@ -18,8 +19,11 @@ afterEach(async () => {
     'unknown@inyuku.test',
     'refresh-test@inyuku.test',
     'logout-test@inyuku.test',
+    'reset-test@inyuku.test',
+    'reset-confirm-test@inyuku.test',
+    'no-such-user@inyuku.test',
   ]);
-  await cleanupTestBusinesses(['Signup Biz', 'Refresh Biz', 'Logout Biz']);
+  await cleanupTestBusinesses(['Signup Biz', 'Refresh Biz', 'Logout Biz', 'Reset Biz', 'Reset Confirm Biz']);
   await prisma.phoneOtp.deleteMany({
     where: { phone: { in: ['+27821234567', '+27821234568'] } },
   });
@@ -286,6 +290,87 @@ describe('auth routes', () => {
         expect(r.json()).toMatchObject({ ok: false, error: { code: 'AUTH_OTP_ATTEMPTS' } });
       }
     }
+  });
+
+  it('password reset request returns uniform ok for known and unknown emails', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/v1/auth/signup',
+      payload: {
+        email: 'reset-test@inyuku.test',
+        password: 'Password123!',
+        name: 'Reset User',
+        businessName: 'Reset Biz',
+        acceptTerms: true,
+      },
+    });
+    const known = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/password/reset-request',
+      payload: { email: 'reset-test@inyuku.test' },
+    });
+    expect(known.statusCode).toBe(200);
+    expect(known.json().ok).toBe(true);
+
+    const unknown = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/password/reset-request',
+      payload: { email: 'no-such-user@inyuku.test' },
+    });
+    expect(unknown.statusCode).toBe(200);
+    expect(unknown.json().ok).toBe(true);
+  });
+
+  it('password reset confirm revokes all refresh families', async () => {
+    const signupRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/signup',
+      payload: {
+        email: 'reset-confirm-test@inyuku.test',
+        password: 'Password123!',
+        name: 'Reset Confirm User',
+        businessName: 'Reset Confirm Biz',
+        acceptTerms: true,
+      },
+    });
+    expect(signupRes.statusCode).toBe(201);
+    const rt = signupRes.cookies.find((c) => c.name === 'inyuku_rt')!.value;
+    const user = await prisma.user.findUnique({
+      where: { email: 'reset-confirm-test@inyuku.test' },
+    });
+
+    const rawToken = randomBytes(32).toString('base64url');
+    await prisma.passwordResetToken.create({
+      data: {
+        userId: user!.id,
+        tokenHash: createHash('sha256').update(rawToken).digest('hex'),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      },
+    });
+
+    const confirm = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/password/reset-confirm',
+      payload: { token: rawToken, password: 'NewPassword123!' },
+    });
+    expect(confirm.statusCode).toBe(200);
+    expect(confirm.json().ok).toBe(true);
+
+    // Old refresh token is revoked.
+    const refreshAfter = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/refresh',
+      cookies: { inyuku_rt: rt },
+    });
+    expect(refreshAfter.statusCode).toBe(401);
+
+    // New password works.
+    const loginAfter = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { email: 'reset-confirm-test@inyuku.test', password: 'NewPassword123!' },
+    });
+    expect(loginAfter.statusCode).toBe(200);
   });
 
   it('OTP expired returns AUTH_OTP_EXPIRED', async () => {

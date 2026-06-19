@@ -7,6 +7,8 @@ import {
   logout,
   requestOtp,
   verifyOtp,
+  requestPasswordReset,
+  confirmPasswordReset,
   buildAuditContext,
 } from '../../auth/auth.service.js';
 import { setAuthCookies, clearAuthCookies } from '../../utils/auth-cookies.js';
@@ -40,6 +42,15 @@ const OtpVerifyBody = z.object({
   phone: z.string().min(1),
   code: z.string().length(6),
   purpose: z.string().optional(),
+});
+
+const PasswordResetRequestBody = z.object({
+  email: z.string().email(),
+});
+
+const PasswordResetConfirmBody = z.object({
+  token: z.string().min(1),
+  password: z.string().min(8),
 });
 
 async function rateLimitOrThrow(
@@ -175,6 +186,40 @@ export default async function authRoutes(app: FastifyInstance) {
         user: result.user,
         memberships: result.memberships,
       });
+    },
+  );
+
+  app.post(
+    '/v1/auth/password/reset-request',
+    {
+      schema: {
+        body: PasswordResetRequestBody,
+        response: {
+          200: z.object({ ok: z.literal(true), data: z.any() }),
+        },
+      },
+    },
+    async (req) => {
+      await rateLimitOrThrow(`reset-request:${clientIpKey(req)}`, 5, 60_000);
+      const result = await requestPasswordReset(req.body.email, buildAuditContext(req));
+      return okEnvelope(result);
+    },
+  );
+
+  app.post(
+    '/v1/auth/password/reset-confirm',
+    {
+      schema: {
+        body: PasswordResetConfirmBody,
+        response: {
+          200: z.object({ ok: z.literal(true), data: z.any() }),
+        },
+      },
+    },
+    async (req) => {
+      await rateLimitOrThrow(`reset-confirm:${clientIpKey(req)}`, 5, 60_000);
+      const result = await confirmPasswordReset(req.body, buildAuditContext(req));
+      return okEnvelope(result);
     },
   );
 }

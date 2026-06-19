@@ -18,6 +18,7 @@ import { auditLog } from '../utils/audit-logger.js';
 import { getClientIpFromHeaders } from '../utils/client-ip.js';
 import { sendSms } from '../utils/sms.js';
 import { checkRateLimit } from '../utils/rate-limit.js';
+import { sendPasswordResetEmail } from '../utils/email.js';
 import type { AuditContext } from '../types/fastify.d.js';
 import type { FastifyRequest } from 'fastify';
 
@@ -594,6 +595,106 @@ async function revokeFamily(familyId: string): Promise<void> {
       revokedAt: new Date(),
     },
   });
+}
+
+export async function requestPasswordReset(
+  email: string,
+  auditCtx: AuditContext,
+): Promise<{ ok: true }> {
+  const normalized = email.toLowerCase().trim();
+  const user = await prisma.user.findUnique({ where: { email: normalized } });
+
+  if (user) {
+    const raw = randomBytes(32).toString('base64url');
+    const tokenHash = createHash('sha256').update(raw).digest('hex');
+    const expiresAt = nowPlus(60 * 60 * 1000);
+    await prisma.passwordResetToken.create({
+      data: {
+        userId: user.id,
+        tokenHash,
+        expiresAt,
+      },
+    });
+    void sendPasswordResetEmail(user.email, user.name, raw);
+    await auditLog({
+      ...auditCtx,
+      userId: user.id,
+      entity: 'users',
+      action: 'PASSWORD_RESET_REQUESTED',
+      entityId: user.id,
+    });
+  }
+
+  // Uniform response — never reveal whether the email exists.
+  return { ok: true };
+}
+
+export interface PasswordResetConfirmInput {
+  token: string;
+  password: string;
+}
+
+export async function confirmPasswordReset(
+  input: PasswordResetConfirmInput,
+  auditCtx: AuditContext,
+): Promise<{ ok: true }> {
+  const tokenHash = createHash('sha256').update(input.token).digest('hex');
+  const resetToken = await prisma.passwordResetToken.findFirst({
+    where: {
+      tokenHash,
+      usedAt: null,
+      expiresAt: { gt: new Date() },
+    },
+    include: { user: true },
+  });
+
+  if (!resetToken) {
+    throw new AuthError('AUTH_TOKEN_EXPIRED', 'Reset token invalid or expired', 400);
+  }
+
+  const passwordCheck = validatePasswordStrength(input.password);
+  if (!passwordCheck.valid) {
+    throw new ValidationError('Password does not meet requirements', {
+      errors: passwordCheck.errors,
+    });
+  }
+
+  const passwordHash = await hashPassword(input.password);
+
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: resetToken.userId },
+      data: { passwordHash },
+    }),
+    prisma.passwordResetToken.update({
+      where: { id: resetToken.id },
+      data: { usedAt: new Date() },
+    }),
+    prisma.refreshToken.updateMany({
+      where: {
+        userId: resetToken.userId,
+        revokedAt: null,
+      },
+      data: { revokedAt: new Date() },
+    }),
+  ]);
+
+  await auditLog({
+    ...auditCtx,
+    userId: resetToken.userId,
+    entity: 'users',
+    action: 'PASSWORD_CHANGE',
+    entityId: resetToken.userId,
+  });
+  await auditLog({
+    ...auditCtx,
+    userId: resetToken.userId,
+    entity: 'auth',
+    action: 'PASSWORD_RESET',
+    entityId: resetToken.userId,
+  });
+
+  return { ok: true };
 }
 
 export function buildAuditContext(req: FastifyRequest): AuditContext {
