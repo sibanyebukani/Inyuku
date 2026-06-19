@@ -1,5 +1,7 @@
 import { prisma } from '../src/db.js';
 
+const PLATFORM_BUSINESS_ID = 'platform';
+
 const PERMISSIONS = [
   { key: 'business:read', description: 'Read business profile' },
   { key: 'business:update', description: 'Update business profile' },
@@ -23,6 +25,19 @@ const PERMISSIONS = [
 ];
 
 async function main() {
+  await prisma.business.upsert({
+    where: { id: PLATFORM_BUSINESS_ID },
+    create: {
+      id: PLATFORM_BUSINESS_ID,
+      name: 'Inyuku Platform',
+      slug: PLATFORM_BUSINESS_ID,
+    },
+    update: {
+      slug: PLATFORM_BUSINESS_ID,
+    },
+  });
+  console.log('[seed] platform-sentinel business ready');
+
   for (const perm of PERMISSIONS) {
     await prisma.permission.upsert({
       where: { key: perm.key },

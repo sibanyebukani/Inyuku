@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { prisma } from '../../db.js';
 import {
   signup,
   login,
@@ -203,6 +204,29 @@ export default async function authRoutes(app: FastifyInstance) {
       await rateLimitOrThrow(`reset-request:${clientIpKey(req)}`, 5, 60_000);
       const result = await requestPasswordReset(req.body.email, buildAuditContext(req));
       return okEnvelope(result);
+    },
+  );
+
+  app.get(
+    '/v1/auth/me',
+    {
+      preHandler: [app.authenticate],
+      schema: {
+        response: {
+          200: z.object({ ok: z.literal(true), data: z.any() }),
+        },
+      },
+    },
+    async (req) => {
+      const user = await prisma.user.findUnique({
+        where: { id: req.user!.sub },
+        select: { id: true, email: true, name: true, phone: true, status: true },
+      });
+      const memberships = await prisma.membership.findMany({
+        where: { userId: req.user!.sub },
+        include: { business: { select: { id: true, name: true, slug: true, status: true } } },
+      });
+      return okEnvelope({ user, memberships });
     },
   );
 
