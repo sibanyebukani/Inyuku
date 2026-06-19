@@ -11,6 +11,7 @@ export interface AccessMembershipClaim {
 export interface AccessClaims {
   sub: string;
   email: string;
+  status: string;
   memberships: AccessMembershipClaim[];
 }
 
@@ -36,6 +37,7 @@ export async function signAccessToken(payload: AccessClaims): Promise<string> {
   return await new SignJWT({
     sub: payload.sub,
     email: payload.email,
+    status: payload.status,
     memberships: payload.memberships,
   })
     .setProtectedHeader({ alg: ACCESS_ALG })

@@ -9,6 +9,7 @@ import { jsonSchemaTransform, serializerCompiler, validatorCompiler } from 'fast
 import { AppError } from './utils/errors.js';
 import { errorEnvelope } from './utils/route-helpers.js';
 import healthRoutes from './routes/health.routes.js';
+import authMiddleware from './middleware/auth.middleware.js';
 
 export interface BuildAppOptions {
   corsAllowedOrigins?: string[];
@@ -60,6 +61,16 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(swaggerUi, {
     routePrefix: '/v1/docs',
     uiConfig: { docExpansion: 'list' },
+  });
+
+  void app.register(authMiddleware);
+
+  app.addHook('onRequest', async (req) => {
+    req.auditCtx = {
+      ipAddress: null,
+      userAgent: null,
+      requestId: req.id,
+    };
   });
 
   void app.register(healthRoutes);
