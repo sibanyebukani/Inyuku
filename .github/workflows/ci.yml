@@ -61,10 +61,12 @@ jobs:
     env:
       DATABASE_URL: postgresql://inyuku:inyuku@localhost:5432/inyuku_dev
       REDIS_URL: redis://localhost:6379
-      ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
-      BLOB_SIGN_SECRET: ${{ secrets.BLOB_SIGN_SECRET }}
-      R2_ENDPOINT: https://fake.r2.cloudflarestorage.com
-      R2_PUBLIC_BASE_URL: https://fake-public.inyuku.co.za
+      # Deterministic CI test values (NOT real secrets) — tests are hermetic via server/test/setup.ts;
+      # these cover non-test app steps (e.g. openapi:check building the app).
+      ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZmdoaWprbG1ub3BxcnN0dXY=
+      BLOB_SIGN_SECRET: test-blob-sign-secret
+      R2_ENDPOINT: https://abc123.r2.cloudflarestorage.com
+      R2_PUBLIC_BASE_URL: https://cdn.inyuku.co.za
       CORS_ALLOWED_ORIGINS: '*.inyuku.co.za'
     steps:
       - uses: actions/checkout@v4
@@ -76,6 +78,8 @@ jobs:
       - run: npm ci
       - name: Generate Prisma client
         run: npm run prisma:generate
+      - name: Run migrations
+        run: npx prisma migrate deploy
       - name: Type check
         run: npm run typecheck
       - name: Lint
