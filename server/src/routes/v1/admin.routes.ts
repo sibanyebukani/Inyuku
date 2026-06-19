@@ -29,11 +29,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       schema: { querystring: LeadQuery },
     },
     async (req) => {
-      const query = req.query as {
-        page: number;
-        limit: number;
-        status?: 'NEW' | 'CONTACTED' | 'QUALIFIED' | 'CLOSED' | 'SPAM';
-      };
+      const query = req.query as z.infer<typeof LeadQuery>;
       const where = query.status ? { status: query.status } : {};
       const [rows, total] = await Promise.all([
         prisma.lead.findMany({
@@ -58,13 +54,14 @@ export default async function adminRoutes(app: FastifyInstance) {
       schema: { body: UpdateLeadBody },
     },
     async (req) => {
-      const id = req.params.id as string;
+      const id = (req.params as { id: string }).id;
+      const body = req.body as z.infer<typeof UpdateLeadBody>;
       const existing = await prisma.lead.findUnique({ where: { id } });
       if (!existing) throw new NotFoundError('Lead not found');
 
       const updated = await prisma.lead.update({
         where: { id },
-        data: { status: req.body.status },
+        data: { status: body.status },
       });
 
       await auditLog({

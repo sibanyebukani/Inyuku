@@ -9,6 +9,7 @@ import {
 const base = {
   sub: 'u1',
   email: 'a@b.co.za',
+  status: 'ACTIVE',
   memberships: [{ businessId: 'b1', role: 'MERCHANT_OWNER', permissions: ['business:read'] }],
 };
 

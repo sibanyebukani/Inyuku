@@ -8,6 +8,9 @@ import { getSetting, getSecretSetting, setSetting } from '../../services/setting
 import { sendEmail } from '../../utils/email.js';
 import { buildAuditContext } from '../../auth/auth.service.js';
 
+type RouteParams = { businessId: string };
+type ConsentRouteParams = { businessId: string; id: string };
+
 const UpdateBusinessBody = z.object({
   name: z.string().min(1).max(100).optional(),
 });
@@ -76,7 +79,7 @@ export default async function businessRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const business = await prisma.business.findUnique({
-        where: { id: req.params.businessId as string },
+        where: { id: (req.params as RouteParams).businessId },
       });
       if (!business) throw new NotFoundError('Business not found');
       return okEnvelope({ business });
@@ -90,12 +93,13 @@ export default async function businessRoutes(app: FastifyInstance) {
       schema: { body: UpdateBusinessBody },
     },
     async (req) => {
-      const businessId = req.params.businessId as string;
+      const businessId = (req.params as RouteParams).businessId;
       const existing = await prisma.business.findUnique({ where: { id: businessId } });
       if (!existing) throw new NotFoundError('Business not found');
 
       const data: { name?: string } = {};
-      if (req.body.name !== undefined) data.name = req.body.name;
+      const body = req.body as z.infer<typeof UpdateBusinessBody>;
+      if (body.name !== undefined) data.name = body.name;
 
       const updated = await prisma.business.update({
         where: { id: businessId },
@@ -128,7 +132,7 @@ export default async function businessRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const members = await prisma.membership.findMany({
-        where: { businessId: req.params.businessId as string },
+        where: { businessId: (req.params as RouteParams).businessId },
         include: { user: { select: { id: true, email: true, name: true, phone: true } } },
       });
       return okEnvelope({ members });
@@ -142,12 +146,13 @@ export default async function businessRoutes(app: FastifyInstance) {
       schema: { body: InviteMemberBody },
     },
     async (req) => {
-      const businessId = req.params.businessId as string;
+      const businessId = (req.params as RouteParams).businessId;
       const business = await prisma.business.findUnique({ where: { id: businessId } });
       if (!business) throw new NotFoundError('Business not found');
 
+      const inviteBody = req.body as z.infer<typeof InviteMemberBody>;
       const user = await prisma.user.findUnique({
-        where: { email: req.body.email.toLowerCase().trim() },
+        where: { email: inviteBody.email.toLowerCase().trim() },
       });
       if (!user) throw new NotFoundError('User not found');
 
@@ -156,8 +161,8 @@ export default async function businessRoutes(app: FastifyInstance) {
           data: {
             userId: user.id,
             businessId,
-            role: req.body.role,
-            permissions: req.body.permissions,
+            role: inviteBody.role,
+            permissions: inviteBody.permissions,
           },
         });
 
@@ -175,7 +180,7 @@ export default async function businessRoutes(app: FastifyInstance) {
           action: 'INVITE',
           entityId: membership.id,
           changes: {
-            role: { old: null, new: req.body.role },
+            role: { old: null, new: inviteBody.role },
             userId: { old: null, new: user.id },
           },
         });
@@ -199,7 +204,7 @@ export default async function businessRoutes(app: FastifyInstance) {
       preHandler: [app.authenticate, app.requirePermission({ permission: 'settings:read' })],
     },
     async (req) => {
-      const businessId = req.params.businessId as string;
+      const businessId = (req.params as RouteParams).businessId;
       const rows = await prisma.setting.findMany({ where: { businessId } });
       const canReadSecret = req.membership
         ? (req.membership.permissions ?? []).includes('settings:read_secret')
@@ -216,9 +221,10 @@ export default async function businessRoutes(app: FastifyInstance) {
       schema: { body: UpdateSettingsBody },
     },
     async (req) => {
-      const businessId = req.params.businessId as string;
+      const businessId = (req.params as RouteParams).businessId;
+      const settingsBody = req.body as z.infer<typeof UpdateSettingsBody>;
       const updated: { key: string; value: string; isSecret: boolean }[] = [];
-      for (const item of req.body.settings) {
+      for (const item of settingsBody.settings) {
         const setting = await setSetting(item.key, item.value, {
           businessId,
           isSecret: item.isSecret,
@@ -240,9 +246,10 @@ export default async function businessRoutes(app: FastifyInstance) {
       schema: { querystring: AuditQuery },
     },
     async (req) => {
-      const businessId = req.params.businessId as string;
-      const page = (req.query as { page: number }).page;
-      const limit = (req.query as { limit: number }).limit;
+      const businessId = (req.params as RouteParams).businessId;
+      const query = req.query as z.infer<typeof AuditQuery>;
+      const page = query.page;
+      const limit = query.limit;
       const [rows, total] = await Promise.all([
         prisma.auditLog.findMany({
           where: { businessId },
@@ -266,7 +273,7 @@ export default async function businessRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const consents = await prisma.consent.findMany({
-        where: { businessId: req.params.businessId as string },
+        where: { businessId: (req.params as RouteParams).businessId },
         include: { revocations: true },
       });
       return okEnvelope({ consents });
@@ -280,12 +287,13 @@ export default async function businessRoutes(app: FastifyInstance) {
       schema: { body: CreateConsentBody },
     },
     async (req) => {
-      const businessId = req.params.businessId as string;
+      const businessId = (req.params as RouteParams).businessId;
+      const body = req.body as z.infer<typeof CreateConsentBody>;
       const consent = await prisma.consent.create({
         data: {
           businessId,
-          userId: req.body.userId ?? null,
-          purpose: req.body.purpose,
+          userId: body.userId ?? null,
+          purpose: body.purpose,
         },
       });
       await auditLog({
@@ -308,15 +316,16 @@ export default async function businessRoutes(app: FastifyInstance) {
       schema: { body: RevokeConsentBody },
     },
     async (req) => {
-      const businessId = req.params.businessId as string;
-      const id = req.params.id as string;
+      const businessId = (req.params as RouteParams).businessId;
+      const id = (req.params as ConsentRouteParams).id;
       const consent = await prisma.consent.findUnique({ where: { id } });
       if (!consent || consent.businessId !== businessId) throw new NotFoundError('Consent not found');
 
+      const revokeBody = req.body as z.infer<typeof RevokeConsentBody>;
       const revocation = await prisma.consentRevocation.create({
         data: {
           consentId: id,
-          reason: req.body.reason ?? null,
+          reason: revokeBody.reason ?? null,
         },
       });
       await prisma.consent.update({
@@ -346,7 +355,7 @@ export default async function businessRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const rows = await prisma.aiUsage.findMany({
-        where: { businessId: req.params.businessId as string },
+        where: { businessId: (req.params as RouteParams).businessId },
         orderBy: { createdAt: 'desc' },
       });
       return okEnvelope({ aiUsage: rows });

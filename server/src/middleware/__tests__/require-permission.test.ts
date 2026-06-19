@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach, beforeEach } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import { buildApp } from '../../app.js';
 import type { FastifyInstance } from 'fastify';
+import { prisma } from '../../db.js';
 import {
   createTestUser,
   createTestBusiness,
   createTestMembership,
   mintAccessToken,
-  cleanupTestUsers,
-  cleanupTestBusinesses,
 } from '../../test-helpers.js';
 
 let app: FastifyInstance;
@@ -18,7 +18,7 @@ beforeAll(async () => {
     app.get('/__test/businesses/:businessId', {
       preHandler: [app.authenticate, app.requirePermission({ permission: 'business:read' })],
     }, async (req) => {
-      return { ok: true, businessId: req.params.businessId, membership: req.membership?.id };
+      return { ok: true, businessId: (req.params as { businessId: string }).businessId, membership: req.membership?.id };
     });
     app.patch('/__test/businesses/:businessId', {
       preHandler: [app.authenticate, app.requirePermission({ permission: 'business:update' })],
@@ -27,19 +27,32 @@ beforeAll(async () => {
   await app.ready();
 });
 
-afterEach(async () => {
-  await cleanupTestUsers([
-    'owner-a@inyuku.test',
-    'owner-b@inyuku.test',
-    'staff-a@inyuku.test',
-  ]);
-  await cleanupTestBusinesses(['Business A', 'Business B']);
+beforeEach(async () => {
+  await prisma.user.deleteMany({ where: { email: { startsWith: 'perm-' } } });
+  await prisma.business.deleteMany({ where: { name: { startsWith: 'Perm ' } } });
 });
+
+afterEach(async () => {
+  await prisma.user.deleteMany({ where: { email: { startsWith: 'perm-' } } });
+  await prisma.business.deleteMany({ where: { name: { startsWith: 'Perm ' } } });
+});
+
+function makeEmails() {
+  const suffix = randomUUID().slice(0, 8);
+  return {
+    ownerA: `perm-owner-a-${suffix}@inyuku.test`,
+    ownerB: `perm-owner-b-${suffix}@inyuku.test`,
+    staffA: `perm-staff-a-${suffix}@inyuku.test`,
+    businessA: `Perm Business A ${suffix}`,
+    businessB: `Perm Business B ${suffix}`,
+  };
+}
 
 describe('requirePermission + tenant isolation', () => {
   it('allows owner to read their own business', async () => {
-    const user = await createTestUser({ email: 'owner-a@inyuku.test' });
-    const business = await createTestBusiness({ name: 'Business A' });
+    const { ownerA, businessA } = makeEmails();
+    const user = await createTestUser({ email: ownerA });
+    const business = await createTestBusiness({ name: businessA });
     await createTestMembership({ userId: user.id, businessId: business.id, role: 'MERCHANT_OWNER' });
     const token = await mintAccessToken({
       userId: user.id,
@@ -56,23 +69,24 @@ describe('requirePermission + tenant isolation', () => {
   });
 
   it('returns 403 for cross-tenant access', async () => {
-    const user = await createTestUser({ email: 'owner-a@inyuku.test' });
-    const businessA = await createTestBusiness({ name: 'Business A' });
-    const businessB = await createTestBusiness({ name: 'Business B' });
-    await createTestMembership({ userId: user.id, businessId: businessA.id, role: 'MERCHANT_OWNER' });
+    const { ownerA, ownerB, businessA, businessB } = makeEmails();
+    const user = await createTestUser({ email: ownerA });
+    const businessA_obj = await createTestBusiness({ name: businessA });
+    const businessB_obj = await createTestBusiness({ name: businessB });
+    await createTestMembership({ userId: user.id, businessId: businessA_obj.id, role: 'MERCHANT_OWNER' });
     await createTestMembership({
-      userId: (await createTestUser({ email: 'owner-b@inyuku.test' })).id,
-      businessId: businessB.id,
+      userId: (await createTestUser({ email: ownerB })).id,
+      businessId: businessB_obj.id,
       role: 'MERCHANT_OWNER',
     });
     const token = await mintAccessToken({
       userId: user.id,
       email: user.email,
-      memberships: [{ businessId: businessA.id, role: 'MERCHANT_OWNER', permissions: [] }],
+      memberships: [{ businessId: businessA_obj.id, role: 'MERCHANT_OWNER', permissions: [] }],
     });
     const r = await app.inject({
       method: 'GET',
-      url: `/__test/businesses/${businessB.id}`,
+      url: `/__test/businesses/${businessB_obj.id}`,
       cookies: { inyuku_at: token },
     });
     expect(r.statusCode).toBe(403);
@@ -80,8 +94,9 @@ describe('requirePermission + tenant isolation', () => {
   });
 
   it('returns 403 when staff lacks permission', async () => {
-    const user = await createTestUser({ email: 'staff-a@inyuku.test' });
-    const business = await createTestBusiness({ name: 'Business A' });
+    const { staffA, businessA } = makeEmails();
+    const user = await createTestUser({ email: staffA });
+    const business = await createTestBusiness({ name: businessA });
     await createTestMembership({ userId: user.id, businessId: business.id, role: 'MERCHANT_STAFF' });
     const token = await mintAccessToken({
       userId: user.id,

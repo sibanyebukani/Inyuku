@@ -11,6 +11,11 @@ import {
   requestPasswordReset,
   confirmPasswordReset,
   buildAuditContext,
+  type SignupInput,
+  type LoginInput,
+  type OtpRequestInput,
+  type OtpVerifyInput,
+  type PasswordResetConfirmInput,
 } from '../../auth/auth.service.js';
 import { setAuthCookies, clearAuthCookies } from '../../utils/auth-cookies.js';
 import { okEnvelope } from '../../utils/route-helpers.js';
@@ -82,7 +87,7 @@ export default async function authRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       await rateLimitOrThrow(`signup:${clientIpKey(req)}`, 5, 60_000);
-      const result = await signup(req.body, buildAuditContext(req));
+      const result = await signup(req.body as SignupInput, buildAuditContext(req));
       setAuthCookies(reply, result.tokens);
       reply.code(201);
       return okEnvelope({
@@ -105,7 +110,7 @@ export default async function authRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       await rateLimitOrThrow(`login:${clientIpKey(req)}`, 10, 60_000);
-      const result = await login(req.body, buildAuditContext(req));
+      const result = await login(req.body as LoginInput, buildAuditContext(req));
       setAuthCookies(reply, result.tokens);
       return okEnvelope({ user: result.user, memberships: result.memberships });
     },
@@ -162,7 +167,7 @@ export default async function authRoutes(app: FastifyInstance) {
       },
     },
     async (req) => {
-      const result = await requestOtp(req.body, buildAuditContext(req));
+      const result = await requestOtp(req.body as OtpRequestInput, buildAuditContext(req));
       return okEnvelope(result);
     },
   );
@@ -178,7 +183,7 @@ export default async function authRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      const result = await verifyOtp(req.body, buildAuditContext(req));
+      const result = await verifyOtp(req.body as OtpVerifyInput, buildAuditContext(req));
       if (result.tokens) {
         setAuthCookies(reply, result.tokens);
       }
@@ -202,7 +207,7 @@ export default async function authRoutes(app: FastifyInstance) {
     },
     async (req) => {
       await rateLimitOrThrow(`reset-request:${clientIpKey(req)}`, 5, 60_000);
-      const result = await requestPasswordReset(req.body.email, buildAuditContext(req));
+      const result = await requestPasswordReset((req.body as { email: string }).email, buildAuditContext(req));
       return okEnvelope(result);
     },
   );
@@ -242,7 +247,7 @@ export default async function authRoutes(app: FastifyInstance) {
     },
     async (req) => {
       await rateLimitOrThrow(`reset-confirm:${clientIpKey(req)}`, 5, 60_000);
-      const result = await confirmPasswordReset(req.body, buildAuditContext(req));
+      const result = await confirmPasswordReset(req.body as PasswordResetConfirmInput, buildAuditContext(req));
       return okEnvelope(result);
     },
   );

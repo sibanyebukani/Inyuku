@@ -33,7 +33,7 @@ export default fp(async function permissionGuard(app: FastifyInstance) {
 
         const resolvedBusinessId =
           opts.businessId ??
-          req.params?.businessId ??
+          (req.params as { businessId?: string }).businessId ??
           req.headers['x-business-id'] ??
           (req.body as { businessId?: string } | undefined)?.businessId;
 

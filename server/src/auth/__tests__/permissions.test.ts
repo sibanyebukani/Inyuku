@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { hasPermission, effectivePermissions, ROLE_PERMISSIONS } from '../permissions.js';
+import { hasPermission } from '../permissions.js';
 
 describe('permissions', () => {
   it('owner has business:update', () => {
