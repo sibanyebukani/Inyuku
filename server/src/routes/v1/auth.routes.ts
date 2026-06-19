@@ -5,6 +5,8 @@ import {
   login,
   refresh,
   logout,
+  requestOtp,
+  verifyOtp,
   buildAuditContext,
 } from '../../auth/auth.service.js';
 import { setAuthCookies, clearAuthCookies } from '../../utils/auth-cookies.js';
@@ -27,6 +29,17 @@ const SignupBody = z.object({
 const LoginBody = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+});
+
+const OtpRequestBody = z.object({
+  phone: z.string().min(1),
+  purpose: z.string().optional(),
+});
+
+const OtpVerifyBody = z.object({
+  phone: z.string().min(1),
+  code: z.string().length(6),
+  purpose: z.string().optional(),
 });
 
 async function rateLimitOrThrow(
@@ -123,6 +136,45 @@ export default async function authRoutes(app: FastifyInstance) {
       }
       clearAuthCookies(reply);
       return okEnvelope({ loggedOut: true });
+    },
+  );
+
+  app.post(
+    '/v1/auth/otp/request',
+    {
+      schema: {
+        body: OtpRequestBody,
+        response: {
+          200: z.object({ ok: z.literal(true), data: z.any() }),
+        },
+      },
+    },
+    async (req) => {
+      const result = await requestOtp(req.body, buildAuditContext(req));
+      return okEnvelope(result);
+    },
+  );
+
+  app.post(
+    '/v1/auth/otp/verify',
+    {
+      schema: {
+        body: OtpVerifyBody,
+        response: {
+          200: z.object({ ok: z.literal(true), data: z.any() }),
+        },
+      },
+    },
+    async (req, reply) => {
+      const result = await verifyOtp(req.body, buildAuditContext(req));
+      if (result.tokens) {
+        setAuthCookies(reply, result.tokens);
+      }
+      return okEnvelope({
+        verified: result.verified,
+        user: result.user,
+        memberships: result.memberships,
+      });
     },
   );
 }

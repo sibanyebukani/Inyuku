@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import { Prisma, MembershipRole } from '@prisma/client';
 import { prisma } from '../db.js';
 import { comparePassword, hashPassword, validatePasswordStrength } from '../utils/password.js';
@@ -11,10 +11,13 @@ import {
 import {
   AuthError,
   ConflictError,
+  RateLimitError,
   ValidationError,
 } from '../utils/errors.js';
 import { auditLog } from '../utils/audit-logger.js';
 import { getClientIpFromHeaders } from '../utils/client-ip.js';
+import { sendSms } from '../utils/sms.js';
+import { checkRateLimit } from '../utils/rate-limit.js';
 import type { AuditContext } from '../types/fastify.d.js';
 import type { FastifyRequest } from 'fastify';
 
@@ -67,6 +70,163 @@ export interface RefreshResult {
   user: SafeUser;
   memberships: AccessMembershipClaim[];
   tokens: AuthTokens;
+}
+
+export interface OtpRequestInput {
+  phone: string;
+  purpose?: string;
+}
+
+export interface OtpVerifyInput {
+  phone: string;
+  code: string;
+  purpose?: string;
+}
+
+const OTP_TTL_MS = 5 * 60 * 1000;
+const OTP_MAX_ATTEMPTS = 5;
+
+function generateOtpCode(): string {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function hashOtp(code: string): string {
+  return createHash('sha256').update(code).digest('hex');
+}
+
+export async function requestOtp(
+  input: OtpRequestInput,
+  auditCtx: AuditContext,
+): Promise<{ requested: true; expiresInSec: number }> {
+  let e164: string;
+  try {
+    const { toE164ZA } = await import('../utils/sms.js');
+    e164 = toE164ZA(input.phone);
+  } catch {
+    throw new ValidationError('Invalid phone number format');
+  }
+
+  // Rate limit: 3 OTP requests per phone per 5 minutes.
+  const rate = await checkRateLimit(`otp:${e164}`, 3, 5 * 60 * 1000);
+  if (!rate.allowed) {
+    throw new RateLimitError('Too many OTP requests');
+  }
+
+  const code = generateOtpCode();
+  const codeHash = hashOtp(code);
+  const user = await prisma.user.findFirst({ where: { phone: e164 } });
+
+  await prisma.phoneOtp.create({
+    data: {
+      userId: user?.id,
+      phone: e164,
+      purpose: input.purpose ?? null,
+      codeHash,
+      expiresAt: nowPlus(OTP_TTL_MS),
+    },
+  });
+
+  // Best-effort SMS; failure is logged but does not fail the request.
+  void sendSms(
+    e164,
+    `Your Inyuku code is ${code}. It is valid for 5 minutes.`,
+  );
+
+  await auditLog({
+    ...auditCtx,
+    userId: user?.id ?? null,
+    entity: 'auth',
+    action: 'CREATE',
+    entityId: e164,
+  });
+
+  return { requested: true, expiresInSec: OTP_TTL_MS / 1000 };
+}
+
+export async function verifyOtp(
+  input: OtpVerifyInput,
+  auditCtx: AuditContext,
+): Promise<{ verified: true; tokens?: AuthTokens; user?: SafeUser; memberships?: AccessMembershipClaim[] }> {
+  let e164: string;
+  try {
+    const { toE164ZA } = await import('../utils/sms.js');
+    e164 = toE164ZA(input.phone);
+  } catch {
+    throw new ValidationError('Invalid phone number format');
+  }
+
+  const otp = await prisma.phoneOtp.findFirst({
+    where: {
+      phone: e164,
+      purpose: input.purpose ?? null,
+      verifiedAt: null,
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (!otp) {
+    throw new AuthError('AUTH_OTP_INVALID', 'Invalid or expired OTP', 400);
+  }
+
+  if (otp.attempts >= OTP_MAX_ATTEMPTS) {
+    throw new AuthError('AUTH_OTP_ATTEMPTS', 'Too many OTP attempts', 429);
+  }
+
+  if (otp.expiresAt < new Date()) {
+    throw new AuthError('AUTH_OTP_EXPIRED', 'OTP expired', 400);
+  }
+
+  const valid = hashOtp(input.code) === otp.codeHash;
+  if (!valid) {
+    await prisma.phoneOtp.update({
+      where: { id: otp.id },
+      data: { attempts: { increment: 1 } },
+    });
+    const updated = await prisma.phoneOtp.findUnique({ where: { id: otp.id } });
+    if ((updated?.attempts ?? 0) >= OTP_MAX_ATTEMPTS) {
+      throw new AuthError('AUTH_OTP_ATTEMPTS', 'Too many OTP attempts', 429);
+    }
+    throw new AuthError('AUTH_OTP_INVALID', 'Invalid OTP', 400);
+  }
+
+  await prisma.phoneOtp.update({
+    where: { id: otp.id },
+    data: { verifiedAt: new Date() },
+  });
+
+  await auditLog({
+    ...auditCtx,
+    userId: otp.userId ?? null,
+    entity: 'auth',
+    action: 'UPDATE',
+    entityId: otp.id,
+  });
+
+  const authPurpose = input.purpose ?? '';
+  if (authPurpose === 'login' || authPurpose === 'signup') {
+    if (!otp.userId) {
+      throw new AuthError('AUTH_OTP_INVALID', 'No account linked to this phone', 400);
+    }
+    const user = await prisma.user.findUnique({ where: { id: otp.userId } });
+    if (!user || user.status !== 'ACTIVE') {
+      throw new AuthError('AUTH_ACCOUNT_INACTIVE', 'Account is not active', 403);
+    }
+    const familyId = `fam_${randomBytes(8).toString('hex')}`;
+    const refresh = await createRefreshToken(user.id, familyId);
+    const { accessToken, memberships } = await buildAccessToken(
+      user.id,
+      user.email,
+      user.status,
+    );
+    return {
+      verified: true,
+      tokens: { accessToken, refreshToken: refresh.token },
+      user: toSafeUser(user),
+      memberships,
+    };
+  }
+
+  return { verified: true };
 }
 
 function toSafeUser(user: { id: string; email: string; name: string; phone: string | null; status: string }): SafeUser {

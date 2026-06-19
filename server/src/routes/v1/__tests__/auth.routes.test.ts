@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import { buildApp } from '../../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../../db.js';
@@ -20,6 +20,9 @@ afterEach(async () => {
     'logout-test@inyuku.test',
   ]);
   await cleanupTestBusinesses(['Signup Biz', 'Refresh Biz', 'Logout Biz']);
+  await prisma.phoneOtp.deleteMany({
+    where: { phone: { in: ['+27821234567', '+27821234568'] } },
+  });
 });
 
 describe('auth routes', () => {
@@ -225,5 +228,84 @@ describe('auth routes', () => {
       cookies: { inyuku_rt: rt },
     });
     expect(after.statusCode).toBe(401);
+  });
+
+  it('OTP request stores a hashed code', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.123456);
+    const r = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/otp/request',
+      payload: { phone: '+27821234567', purpose: 'login' },
+    });
+    vi.restoreAllMocks();
+    expect(r.statusCode).toBe(200);
+    expect(r.json().data.requested).toBe(true);
+    const record = await prisma.phoneOtp.findFirst({ where: { phone: '+27821234567' } });
+    expect(record).toBeDefined();
+    expect(record?.codeHash).not.toBe('211110');
+    expect(record?.attempts).toBe(0);
+  });
+
+  it('OTP verify with correct code succeeds', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.123456);
+    await app.inject({
+      method: 'POST',
+      url: '/v1/auth/otp/request',
+      payload: { phone: '+27821234567', purpose: 'login' },
+    });
+    vi.restoreAllMocks();
+    // No user linked, so verify should error for login purpose.
+    const r = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/otp/verify',
+      payload: { phone: '+27821234567', code: '211110', purpose: 'login' },
+    });
+    expect(r.statusCode).toBe(400);
+    expect(r.json()).toMatchObject({ ok: false, error: { code: 'AUTH_OTP_INVALID' } });
+  });
+
+  it('OTP wrong code increments attempts and caps', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.123456);
+    await app.inject({
+      method: 'POST',
+      url: '/v1/auth/otp/request',
+      payload: { phone: '+27821234567', purpose: 'login' },
+    });
+    vi.restoreAllMocks();
+    for (let i = 0; i < 5; i++) {
+      const r = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/otp/verify',
+        payload: { phone: '+27821234567', code: '000000', purpose: 'login' },
+      });
+      if (i < 4) {
+        expect(r.statusCode).toBe(400);
+        expect(r.json()).toMatchObject({ ok: false, error: { code: 'AUTH_OTP_INVALID' } });
+      } else {
+        expect(r.statusCode).toBe(429);
+        expect(r.json()).toMatchObject({ ok: false, error: { code: 'AUTH_OTP_ATTEMPTS' } });
+      }
+    }
+  });
+
+  it('OTP expired returns AUTH_OTP_EXPIRED', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.123456);
+    await app.inject({
+      method: 'POST',
+      url: '/v1/auth/otp/request',
+      payload: { phone: '+27821234568', purpose: 'login' },
+    });
+    vi.restoreAllMocks();
+    await prisma.phoneOtp.updateMany({
+      where: { phone: '+27821234568' },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/otp/verify',
+      payload: { phone: '+27821234568', code: '211110', purpose: 'login' },
+    });
+    expect(r.statusCode).toBe(400);
+    expect(r.json()).toMatchObject({ ok: false, error: { code: 'AUTH_OTP_EXPIRED' } });
   });
 });
