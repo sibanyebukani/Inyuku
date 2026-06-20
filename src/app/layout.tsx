@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
+import { NextIntlClientProvider } from 'next-intl'
+import { getLocale, getMessages } from 'next-intl/server'
 import './globals.css'
 import Navbar from '@/components/Navbar'
 import Footer from '@/components/Footer'
@@ -12,13 +14,18 @@ export const metadata: Metadata = {
     'Digital commerce platform for South African informal and small businesses — WhatsApp commerce, digital payments, inventory, and an AI business assistant.',
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const locale = await getLocale()
+  const messages = await getMessages()
+
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang={locale} className={inter.variable}>
       <body>
-        <Navbar />
-        <main>{children}</main>
-        <Footer />
+        <NextIntlClientProvider messages={messages}>
+          <Navbar />
+          <main>{children}</main>
+          <Footer />
+        </NextIntlClientProvider>
       </body>
     </html>
   )

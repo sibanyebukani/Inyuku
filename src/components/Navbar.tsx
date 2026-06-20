@@ -3,20 +3,23 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import { Menu, X } from 'lucide-react'
-
-const navLinks = [
-  { label: 'Home', path: '/' },
-  { label: 'Platform', path: '/platform' },
-  { label: 'Impact', path: '/impact' },
-  { label: 'Solutions', path: '/solutions' },
-  { label: 'Stories', path: '/stories' },
-  { label: 'About', path: '/about' },
-]
+import LanguageSwitcher from './LanguageSwitcher'
 
 export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const pathname = usePathname()
+  const t = useTranslations('nav')
+
+  const navLinks = [
+    { label: t('home'), path: '/' },
+    { label: t('platform'), path: '/platform' },
+    { label: t('impact'), path: '/impact' },
+    { label: t('solutions'), path: '/solutions' },
+    { label: t('stories'), path: '/stories' },
+    { label: t('about'), path: '/about' },
+  ]
 
   return (
     <nav
@@ -68,22 +71,25 @@ export default function Navbar() {
           })}
         </div>
 
-        {/* Desktop CTA */}
-        <Link
-          href="/platform"
-          className="hidden md:inline-flex items-center px-6 py-3 rounded-lg text-[14px] font-semibold text-white transition-all duration-250 hover:scale-[1.02] active:scale-[0.98]"
-          style={{ backgroundColor: '#E86A34' }}
-          onMouseEnter={(e: React.MouseEvent<HTMLAnchorElement>) => {
-            e.currentTarget.style.backgroundColor = '#D15A28'
-            e.currentTarget.style.boxShadow = '0 4px 20px rgba(232, 106, 52, 0.25)'
-          }}
-          onMouseLeave={(e: React.MouseEvent<HTMLAnchorElement>) => {
-            e.currentTarget.style.backgroundColor = '#E86A34'
-            e.currentTarget.style.boxShadow = 'none'
-          }}
-        >
-          Get Started
-        </Link>
+        {/* Desktop CTA + Language */}
+        <div className="hidden md:flex items-center gap-4">
+          <LanguageSwitcher />
+          <Link
+            href="/platform"
+            className="inline-flex items-center px-6 py-3 rounded-lg text-[14px] font-semibold text-white transition-all duration-250 hover:scale-[1.02] active:scale-[0.98]"
+            style={{ backgroundColor: '#E86A34' }}
+            onMouseEnter={(e: React.MouseEvent<HTMLAnchorElement>) => {
+              e.currentTarget.style.backgroundColor = '#D15A28'
+              e.currentTarget.style.boxShadow = '0 4px 20px rgba(232, 106, 52, 0.25)'
+            }}
+            onMouseLeave={(e: React.MouseEvent<HTMLAnchorElement>) => {
+              e.currentTarget.style.backgroundColor = '#E86A34'
+              e.currentTarget.style.boxShadow = 'none'
+            }}
+          >
+            Get Started
+          </Link>
+        </div>
 
         {/* Mobile Hamburger */}
         <button
@@ -119,6 +125,7 @@ export default function Navbar() {
           >
             Get Started
           </Link>
+          <LanguageSwitcher />
         </div>
       )}
     </nav>
