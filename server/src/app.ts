@@ -13,6 +13,7 @@ import authRoutes from './routes/v1/auth.routes.js';
 import businessRoutes from './routes/v1/businesses.routes.js';
 import adminRoutes from './routes/v1/admin.routes.js';
 import leadsRoutes from './routes/v1/leads.routes.js';
+import * as Sentry from '@sentry/node';
 import authMiddleware from './middleware/auth.middleware.js';
 import permissionGuard from './middleware/require-permission.js';
 
@@ -113,6 +114,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   });
 
   app.setErrorHandler((err, _req, reply) => {
+    Sentry.captureException(err);
+
     if (err instanceof AppError) {
       reply.code(err.statusCode).send(errorEnvelope(err.code, err.message, err.details));
       return;
