@@ -43,6 +43,8 @@ Every processing activity below is tenant-scoped by `businessId` (ADR-005). Lawf
 | Marketing leads | name, email, message | Prospects | Sales follow-up | Consent | Postgres (`Lead`) |
 
 PII fields are minimised in AI prompts and masked by the chassis `logger` + `pii-mask` in all logs.
+The `pii-mask` sensitive-key set includes `name`, `firstname`, `lastname`, and `surname`, so names are
+redacted in audit `changes` and other log payloads.
 
 ---
 
