@@ -276,6 +276,8 @@ Split auth into a **short-lived access token** and a **long-lived refresh token*
 - **Rotation + reuse-detection:** each `/v1/auth/refresh` issues a new token in the same family and
   invalidates the old; presenting a rotated/old token = reuse → **revoke the whole family** (force re-login).
 - Logout clears both cookies server-side and revokes the family.
+- **CSRF defense:** `SameSite=Lax` is the primary defense; a secondary Origin/Referer allowlist check on
+  unsafe methods rejects cross-site requests when `CORS_ALLOWED_ORIGINS` is configured.
 
 ### Consequences
 - Requires `/v1/auth/refresh`, family-aware revocation, and server-side cookie clearing on logout.

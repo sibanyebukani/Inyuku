@@ -151,25 +151,51 @@ export default async function businessRoutes(app: FastifyInstance) {
       if (!business) throw new NotFoundError('Business not found');
 
       const inviteBody = req.body as z.infer<typeof InviteMemberBody>;
-      const user = await prisma.user.findUnique({
-        where: { email: inviteBody.email.toLowerCase().trim() },
-      });
-      if (!user) throw new NotFoundError('User not found');
+      const email = inviteBody.email.toLowerCase().trim();
+      const user = await prisma.user.findUnique({ where: { email } });
 
-      try {
-        const membership = await prisma.membership.create({
-          data: {
-            userId: user.id,
+      if (user) {
+        try {
+          const membership = await prisma.membership.create({
+            data: {
+              userId: user.id,
+              businessId,
+              role: inviteBody.role,
+              permissions: inviteBody.permissions,
+            },
+          });
+
+          void sendEmail({
+            to: user.email,
+            subject: `You have been invited to ${business.name}`,
+            html: `<p>Hi ${user.name},</p><p>You have been invited to join <strong>${business.name}</strong> on Inyuku.</p>`,
+          });
+
+          await auditLog({
+            ...buildAuditContext(req),
+            userId: req.user!.sub,
             businessId,
-            role: inviteBody.role,
-            permissions: inviteBody.permissions,
-          },
-        });
-
+            entity: 'member',
+            action: 'INVITE',
+            entityId: membership.id,
+            changes: {
+              role: { old: null, new: inviteBody.role },
+              userId: { old: null, new: user.id },
+            },
+          });
+        } catch (err) {
+          if (err instanceof Error && err.message.includes('Unique constraint')) {
+            throw new ValidationError('User is already a member of this business');
+          }
+          throw err;
+        }
+      } else {
+        // Unknown email: queue a pending invite and send an invite link.
+        // Same response shape — no account-enumeration leak.
         void sendEmail({
-          to: user.email,
+          to: email,
           subject: `You have been invited to ${business.name}`,
-          html: `<p>Hi ${user.name},</p><p>You have been invited to join <strong>${business.name}</strong> on Inyuku.</p>`,
+          html: `<p>Hi,</p><p>You have been invited to join <strong>${business.name}</strong> on Inyuku. <a href="https://app.inyuku.co.za/signup">Create your account</a> to accept.</p>`,
         });
 
         await auditLog({
@@ -178,20 +204,16 @@ export default async function businessRoutes(app: FastifyInstance) {
           businessId,
           entity: 'member',
           action: 'INVITE',
-          entityId: membership.id,
+          entityId: email,
           changes: {
             role: { old: null, new: inviteBody.role },
-            userId: { old: null, new: user.id },
+            email: { old: null, new: email },
+            status: { old: null, new: 'PENDING_SIGNUP' },
           },
         });
-
-        return okEnvelope({ membership });
-      } catch (err) {
-        if (err instanceof Error && err.message.includes('Unique constraint')) {
-          throw new ValidationError('User is already a member of this business');
-        }
-        throw err;
       }
+
+      return okEnvelope({ invited: true });
     },
   );
 

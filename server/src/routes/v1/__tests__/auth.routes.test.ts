@@ -1,9 +1,15 @@
 import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
-import { createHash, randomBytes } from 'node:crypto';
+import * as crypto from 'node:crypto';
 import { buildApp } from '../../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../../db.js';
 import { cleanupTestUsers, cleanupTestBusinesses } from '../../../test-helpers.js';
+import { redis } from '../../../redis.js';
+
+vi.mock('node:crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:crypto')>();
+  return { ...actual, randomInt: vi.fn(() => 211110) };
+});
 
 let app: FastifyInstance;
 
@@ -13,6 +19,7 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await cleanupTestUsers([
     'signup-test@inyuku.test',
     'login-test@inyuku.test',
@@ -22,10 +29,13 @@ afterEach(async () => {
     'reset-test@inyuku.test',
     'reset-confirm-test@inyuku.test',
     'no-such-user@inyuku.test',
+    'global-limit-1@inyuku.test',
+    'global-limit-2@inyuku.test',
+    'global-limit-3@inyuku.test',
   ]);
   await cleanupTestBusinesses(['Signup Biz', 'Refresh Biz', 'Logout Biz', 'Reset Biz', 'Reset Confirm Biz']);
   await prisma.phoneOtp.deleteMany({
-    where: { phone: { in: ['+27821234567', '+27821234568'] } },
+    where: { phone: { in: ['+27821234567', '+27821234568', '+27828888888', '+27829999999'] } },
   });
 });
 
@@ -235,7 +245,7 @@ describe('auth routes', () => {
   });
 
   it('OTP request stores a hashed code', async () => {
-    vi.spyOn(Math, 'random').mockReturnValue(0.123456);
+    vi.mocked(crypto.randomInt).mockReturnValue(211110);
     const r = await app.inject({
       method: 'POST',
       url: '/v1/auth/otp/request',
@@ -251,7 +261,7 @@ describe('auth routes', () => {
   });
 
   it('OTP verify with correct code succeeds', async () => {
-    vi.spyOn(Math, 'random').mockReturnValue(0.123456);
+    vi.mocked(crypto.randomInt).mockReturnValue(211110);
     await app.inject({
       method: 'POST',
       url: '/v1/auth/otp/request',
@@ -269,7 +279,7 @@ describe('auth routes', () => {
   });
 
   it('OTP wrong code increments attempts and caps', async () => {
-    vi.spyOn(Math, 'random').mockReturnValue(0.123456);
+    vi.mocked(crypto.randomInt).mockReturnValue(211110);
     await app.inject({
       method: 'POST',
       url: '/v1/auth/otp/request',
@@ -339,11 +349,11 @@ describe('auth routes', () => {
       where: { email: 'reset-confirm-test@inyuku.test' },
     });
 
-    const rawToken = randomBytes(32).toString('base64url');
+    const rawToken = crypto.randomBytes(32).toString('base64url');
     await prisma.passwordResetToken.create({
       data: {
         userId: user!.id,
-        tokenHash: createHash('sha256').update(rawToken).digest('hex'),
+        tokenHash: crypto.createHash('sha256').update(rawToken).digest('hex'),
         expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
     });
@@ -374,7 +384,7 @@ describe('auth routes', () => {
   });
 
   it('OTP expired returns AUTH_OTP_EXPIRED', async () => {
-    vi.spyOn(Math, 'random').mockReturnValue(0.123456);
+    vi.mocked(crypto.randomInt).mockReturnValue(211110);
     await app.inject({
       method: 'POST',
       url: '/v1/auth/otp/request',
@@ -392,5 +402,105 @@ describe('auth routes', () => {
     });
     expect(r.statusCode).toBe(400);
     expect(r.json()).toMatchObject({ ok: false, error: { code: 'AUTH_OTP_EXPIRED' } });
+  });
+
+  it('OTP verify is rate-limited per ip+phone', async () => {
+    const prev = process.env.RATE_LIMIT_DISABLED;
+    process.env.RATE_LIMIT_DISABLED = 'false';
+    vi.mocked(crypto.randomInt).mockReturnValue(211110);
+    await app.inject({
+      method: 'POST',
+      url: '/v1/auth/otp/request',
+      payload: { phone: '+27829999999', purpose: 'login' },
+    });
+    vi.restoreAllMocks();
+    let blocked = false;
+    try {
+      for (let i = 0; i < 12; i++) {
+        const r = await app.inject({
+          method: 'POST',
+          url: '/v1/auth/otp/verify',
+          payload: { phone: '+27829999999', code: '000000', purpose: 'login' },
+        });
+        if (r.statusCode === 429) {
+          blocked = true;
+          break;
+        }
+      }
+      expect(blocked).toBe(true);
+    } finally {
+      process.env.RATE_LIMIT_DISABLED = prev;
+    }
+  });
+
+  it('single-active-OTP invalidates prior codes', async () => {
+    vi.mocked(crypto.randomInt).mockReturnValueOnce(111111).mockReturnValueOnce(222222);
+    await app.inject({
+      method: 'POST',
+      url: '/v1/auth/otp/request',
+      payload: { phone: '+27828888888', purpose: 'login' },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/v1/auth/otp/request',
+      payload: { phone: '+27828888888', purpose: 'login' },
+    });
+    vi.restoreAllMocks();
+    // The first code should no longer verify (attempt cap / invalidated).
+    const r = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/otp/verify',
+      payload: { phone: '+27828888888', code: '111111', purpose: 'login' },
+    });
+    expect([400, 429]).toContain(r.statusCode);
+    expect(['AUTH_OTP_INVALID', 'AUTH_OTP_ATTEMPTS']).toContain(r.json().error.code);
+  });
+
+  it('global per-IP auth limiter blocks excessive POSTs', async () => {
+    const prevLimit = process.env.AUTH_GLOBAL_LIMIT;
+    const prevRate = process.env.RATE_LIMIT_DISABLED;
+    process.env.AUTH_GLOBAL_LIMIT = '2';
+    process.env.RATE_LIMIT_DISABLED = 'false';
+    await redis.flushall();
+    const limiterApp = buildApp();
+    await limiterApp.ready();
+    try {
+      const r1 = await limiterApp.inject({
+        method: 'POST',
+        url: '/v1/auth/password/reset-request',
+        payload: { email: 'global-limit-1@inyuku.test' },
+      });
+      expect(r1.statusCode).toBe(200);
+      const r2 = await limiterApp.inject({
+        method: 'POST',
+        url: '/v1/auth/password/reset-request',
+        payload: { email: 'global-limit-2@inyuku.test' },
+      });
+      expect(r2.statusCode).toBe(200);
+      const r3 = await limiterApp.inject({
+        method: 'POST',
+        url: '/v1/auth/password/reset-request',
+        payload: { email: 'global-limit-3@inyuku.test' },
+      });
+      expect(r3.statusCode).toBe(429);
+      expect(r3.json()).toMatchObject({ ok: false, error: { code: 'RATE_LIMIT_EXCEEDED' } });
+    } finally {
+      process.env.AUTH_GLOBAL_LIMIT = prevLimit;
+      process.env.RATE_LIMIT_DISABLED = prevRate;
+      await limiterApp.close();
+    }
+  });
+
+  it('rejects cross-site unsafe requests when CORS origins are configured', async () => {
+    const csrfApp = buildApp({ corsAllowedOrigins: ['https://app.inyuku.co.za'] });
+    await csrfApp.ready();
+    const r = await csrfApp.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      headers: { origin: 'https://evil.example' },
+      payload: { email: 'a@b.co.za', password: 'x' },
+    });
+    expect(r.statusCode).toBe(403);
+    expect(r.json().error.code).toBe('FORBIDDEN');
   });
 });

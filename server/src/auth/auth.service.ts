@@ -1,4 +1,4 @@
-import { randomBytes, createHash } from 'node:crypto';
+import { randomBytes, randomInt, createHash } from 'node:crypto';
 import { Prisma, MembershipRole } from '@prisma/client';
 import { prisma } from '../db.js';
 import { comparePassword, hashPassword, validatePasswordStrength } from '../utils/password.js';
@@ -88,7 +88,7 @@ const OTP_TTL_MS = 5 * 60 * 1000;
 const OTP_MAX_ATTEMPTS = 5;
 
 function generateOtpCode(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(randomInt(0, 1_000_000)).padStart(6, '0');
 }
 
 function hashOtp(code: string): string {
@@ -112,6 +112,17 @@ export async function requestOtp(
   if (!rate.allowed) {
     throw new RateLimitError('Too many OTP requests');
   }
+
+  // Single-active-OTP: invalidate any prior unverified OTPs for this phone so the
+  // attempt cap is per-phone-per-window, not per-row.
+  await prisma.phoneOtp.updateMany({
+    where: {
+      phone: e164,
+      verifiedAt: null,
+      expiresAt: { gt: new Date() },
+    },
+    data: { attempts: OTP_MAX_ATTEMPTS },
+  });
 
   const code = generateOtpCode();
   const codeHash = hashOtp(code);

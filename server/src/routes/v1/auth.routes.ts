@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../../db.js';
 import {
@@ -21,8 +21,6 @@ import { setAuthCookies, clearAuthCookies } from '../../utils/auth-cookies.js';
 import { okEnvelope } from '../../utils/route-helpers.js';
 import { AuthError, RateLimitError } from '../../utils/errors.js';
 import { checkRateLimit } from '../../utils/rate-limit.js';
-import { getClientIpFromHeaders } from '../../utils/client-ip.js';
-
 const SignupBody = z.object({
   email: z.string().email(),
   password: z.string().min(8),
@@ -70,14 +68,26 @@ async function rateLimitOrThrow(
   }
 }
 
-function clientIpKey(req: { headers: Record<string, string | string[] | undefined> }): string {
-  return getClientIpFromHeaders(req.headers) ?? 'unknown';
+function clientIpKey(req: FastifyRequest): string {
+  return req.ip ?? 'unknown';
 }
 
 export default async function authRoutes(app: FastifyInstance) {
+  const authGlobalLimit = process.env.AUTH_GLOBAL_LIMIT
+    ? parseInt(process.env.AUTH_GLOBAL_LIMIT, 10)
+    : 30;
+
+  // Defense-in-depth per-IP limit across all auth routes.
+  app.addHook("onRequest", async (req) => {
+    if (req.method === "POST") {
+      await rateLimitOrThrow(`auth-global:${req.ip ?? "unknown"}`, authGlobalLimit, 60_000);
+    }
+  });
+
   app.post(
     '/v1/auth/signup',
     {
+      bodyLimit: 16 * 1024,
       schema: {
         body: SignupBody,
         response: {
@@ -101,6 +111,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post(
     '/v1/auth/login',
     {
+      bodyLimit: 16 * 1024,
       schema: {
         body: LoginBody,
         response: {
@@ -119,6 +130,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post(
     '/v1/auth/refresh',
     {
+      bodyLimit: 16 * 1024,
       schema: {
         response: {
           200: z.object({ ok: z.literal(true), data: z.any() }),
@@ -139,6 +151,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post(
     '/v1/auth/logout',
     {
+      bodyLimit: 16 * 1024,
       preHandler: [app.authenticate],
       schema: {
         response: {
@@ -159,6 +172,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post(
     '/v1/auth/otp/request',
     {
+      bodyLimit: 16 * 1024,
       schema: {
         body: OtpRequestBody,
         response: {
@@ -175,6 +189,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post(
     '/v1/auth/otp/verify',
     {
+      bodyLimit: 16 * 1024,
       schema: {
         body: OtpVerifyBody,
         response: {
@@ -183,7 +198,9 @@ export default async function authRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      const result = await verifyOtp(req.body as OtpVerifyInput, buildAuditContext(req));
+      const body = req.body as OtpVerifyInput;
+      await rateLimitOrThrow(`otp-verify:${clientIpKey(req)}:${body.phone}`, 10, 60_000);
+      const result = await verifyOtp(body, buildAuditContext(req));
       if (result.tokens) {
         setAuthCookies(reply, result.tokens);
       }
@@ -198,6 +215,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post(
     '/v1/auth/password/reset-request',
     {
+      bodyLimit: 16 * 1024,
       schema: {
         body: PasswordResetRequestBody,
         response: {
@@ -215,6 +233,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.get(
     '/v1/auth/me',
     {
+      bodyLimit: 16 * 1024,
       preHandler: [app.authenticate],
       schema: {
         response: {
@@ -238,6 +257,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post(
     '/v1/auth/password/reset-confirm',
     {
+      bodyLimit: 16 * 1024,
       schema: {
         body: PasswordResetConfirmBody,
         response: {

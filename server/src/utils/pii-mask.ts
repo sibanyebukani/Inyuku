@@ -5,7 +5,7 @@
  * user-supplied data. Never log raw PII.
  */
 
-const SENSITIVE_KEY_RE = /password|token|secret|signature|medicalaidnumber|mainmemberid|hospitalnumber|authcode|apikey|pin|cvv|dob|dateofbirth|address|passport|bloburl|strokedatabloburl|snapshoturl|audiourl/i;
+const SENSITIVE_KEY_RE = /password|token|secret|signature|medicalaidnumber|mainmemberid|hospitalnumber|authcode|apikey|pin|cvv|dob|dateofbirth|address|passport|bloburl|strokedatabloburl|snapshoturl|audiourl|name|firstname|lastname|surname/i;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SA_ID_RE = /^\d{13}$/;
 const PHONE_RE = /^(\+27|0)\d{9,11}$/;

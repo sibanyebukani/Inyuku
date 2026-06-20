@@ -21,12 +21,15 @@ export interface BuildAppOptions {
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const usePretty = process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test';
+  const trustProxyHops = process.env.TRUSTED_PROXY_HOPS
+    ? parseInt(process.env.TRUSTED_PROXY_HOPS, 10)
+    : 0;
   const app = Fastify({
     logger: usePretty
       ? { level: process.env.LOG_LEVEL ?? 'info', transport: { target: 'pino-pretty' } }
       : { level: process.env.LOG_LEVEL ?? 'info' },
     disableRequestLogging: false,
-    trustProxy: true,
+    trustProxy: trustProxyHops,
     bodyLimit: 60 * 1024 * 1024,
   });
 
@@ -77,6 +80,26 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
       requestId: req.id,
     };
   });
+
+  // CSRF defense: Origin/Referer allowlist on unsafe methods.
+  // Browsers send Origin on cross-site POST/PATCH/DELETE; if the origin is present
+  // it must match CORS_ALLOWED_ORIGINS. SameSite=Lax is the primary defense; this is
+  // fail-closed hardening for non-GET requests.
+  const allowedOrigins = opts.corsAllowedOrigins ?? parseCorsOrigins(process.env.CORS_ALLOWED_ORIGINS);
+  const unsafeMethods = new Set(['POST', 'PATCH', 'DELETE', 'PUT']);
+  if (allowedOrigins && Array.isArray(allowedOrigins) && allowedOrigins.length > 0) {
+    app.addHook('onRequest', async (req, reply) => {
+      if (!unsafeMethods.has(req.method)) return;
+      const origin = req.headers.origin;
+      const referer = req.headers.referer;
+      const value = origin ?? referer;
+      if (!value) return;
+      if (!isOriginAllowed(value, allowedOrigins)) {
+        void reply.code(403).send(errorEnvelope('FORBIDDEN', 'Cross-site request rejected'));
+        return reply;
+      }
+    });
+  }
 
   void app.register(healthRoutes);
   void app.register(authRoutes, { prefix: '' });
@@ -141,4 +164,14 @@ function parseCorsOrigins(raw?: string): boolean | Array<string | RegExp> {
     }
     return origin;
   });
+}
+
+function isOriginAllowed(value: string, allowed: Array<string | RegExp>): boolean {
+  try {
+    const url = new URL(value);
+    const origin = `${url.protocol}//${url.host}`;
+    return allowed.some((a) => (typeof a === 'string' ? a === origin : a.test(origin)));
+  } catch {
+    return allowed.some((a) => (typeof a === 'string' ? a === value : a.test(value)));
+  }
 }
