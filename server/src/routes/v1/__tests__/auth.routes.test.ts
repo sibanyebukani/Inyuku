@@ -245,7 +245,7 @@ describe('auth routes', () => {
   });
 
   it('OTP request stores a hashed code', async () => {
-    vi.mocked(crypto.randomInt).mockReturnValue(211110);
+    vi.mocked(crypto.randomInt).mockImplementation(() => 211110);
     const r = await app.inject({
       method: 'POST',
       url: '/v1/auth/otp/request',
@@ -261,7 +261,7 @@ describe('auth routes', () => {
   });
 
   it('OTP verify with correct code succeeds', async () => {
-    vi.mocked(crypto.randomInt).mockReturnValue(211110);
+    vi.mocked(crypto.randomInt).mockImplementation(() => 211110);
     await app.inject({
       method: 'POST',
       url: '/v1/auth/otp/request',
@@ -279,7 +279,7 @@ describe('auth routes', () => {
   });
 
   it('OTP wrong code increments attempts and caps', async () => {
-    vi.mocked(crypto.randomInt).mockReturnValue(211110);
+    vi.mocked(crypto.randomInt).mockImplementation(() => 211110);
     await app.inject({
       method: 'POST',
       url: '/v1/auth/otp/request',
@@ -384,7 +384,7 @@ describe('auth routes', () => {
   });
 
   it('OTP expired returns AUTH_OTP_EXPIRED', async () => {
-    vi.mocked(crypto.randomInt).mockReturnValue(211110);
+    vi.mocked(crypto.randomInt).mockImplementation(() => 211110);
     await app.inject({
       method: 'POST',
       url: '/v1/auth/otp/request',
@@ -407,7 +407,7 @@ describe('auth routes', () => {
   it('OTP verify is rate-limited per ip+phone', async () => {
     const prev = process.env.RATE_LIMIT_DISABLED;
     process.env.RATE_LIMIT_DISABLED = 'false';
-    vi.mocked(crypto.randomInt).mockReturnValue(211110);
+    vi.mocked(crypto.randomInt).mockImplementation(() => 211110);
     await app.inject({
       method: 'POST',
       url: '/v1/auth/otp/request',
@@ -434,7 +434,7 @@ describe('auth routes', () => {
   });
 
   it('single-active-OTP invalidates prior codes', async () => {
-    vi.mocked(crypto.randomInt).mockReturnValueOnce(111111).mockReturnValueOnce(222222);
+    vi.mocked(crypto.randomInt).mockImplementationOnce(() => 111111).mockImplementationOnce(() => 222222);
     await app.inject({
       method: 'POST',
       url: '/v1/auth/otp/request',

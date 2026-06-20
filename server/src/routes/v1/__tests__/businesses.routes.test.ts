@@ -147,7 +147,7 @@ describe('business routes', () => {
 
   it('member invite returns uniform response and does not enumerate accounts', async () => {
     const owner = await createTestUser({ email: 'owner-a@inyuku.test' });
-    const known = await createTestUser({ email: 'known-invitee@inyuku.test' });
+    await createTestUser({ email: 'known-invitee@inyuku.test' });
     const business = await createTestBusiness({ name: 'Business A' });
     await createTestMembership({ userId: owner.id, businessId: business.id, role: 'MERCHANT_OWNER' });
     const token = await mintAccessToken({
