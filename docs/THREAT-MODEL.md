@@ -97,3 +97,34 @@ Context: PII in Railway Postgres + Cloudflare R2, EU-region-pinned; §72 basis =
 
 **Sign-off:** the PII-storage posture is gated by the EA-ADR-015 pre-production-PII assessment
 (bukani-compliance + bukani-security) before any production personal information is stored.
+
+---
+
+## 5. M1-B auth & tenancy — STRIDE review verdict (2026-06-20)
+
+`bukani-security` reviewed the M1-B auth surface (branch `feature/m1b-auth-tenancy`, merged PR #4).
+Initial verdict **PASS-WITH-FIXES** (2 high blockers + M1/M2/M3 + L2); after fixes (commits `a685ac6`,
+`b510ed8`), the verification re-review returned **GATE: PASS**.
+
+**Resolved:** H1 OTP brute-force (CSPRNG codes + Redis `otp-verify` throttle + single-active-OTP);
+H2 spoofable X-Forwarded-For (`trustProxy` from `TRUSTED_PROXY_HOPS`, rate-limits key on Fastify
+`req.ip`, global auth limiter); M1 CSRF (Origin/Referer allowlist + SameSite=Lax); M2 invite
+no-enumeration; M3 name redaction in audit; L2 `User.phone @unique`.
+
+**Verified-correct:** authz re-loads `Membership` from DB (never trusts the JWT claim), refresh
+rotation + family reuse-detection (transactional), constant-time login, sha256-at-rest tokens,
+cross-tenant isolation, HS256 alg-allowlist, fail-closed CORS, no prod stack traces.
+
+**Accepted residual risks (documented):**
+1. **Audit-log IP is XFF-derived/spoofable** — LOW; affects only forensic attribution, no control depends on it. *Re-eval trigger:* if audit IP is ever used for a security decision, move to `req.ip` (becomes a blocker).
+2. ⚠️ **`TRUSTED_PROXY_HOPS` must be set to the real proxy hop count in prod** (Cloudflare+Nginx = 2, single LB = 1) before cutover — else all clients share one rate-limit bucket (availability foot-gun, not a spoof). **PROD-DEPLOY GATE — see below.**
+3. Over-redaction of `*name*` keys in audit diffs (e.g. `businessName`) — intentional, safe direction.
+4. OTP residual: 5 guesses/active code over 1e6, gated by request + verify rate limits — negligible.
+
+**Non-blocking follow-ups (next iteration):** per-route-class global limiter buckets; a boot-time
+warn if `NODE_ENV=production` and `TRUSTED_PROXY_HOPS` is unset.
+
+### Production-deploy gates (must clear before live cutover — track alongside the EA-ADR-015 PII gate)
+- [ ] **`TRUSTED_PROXY_HOPS`** set to the prod topology's hop count + verified (`req.ip` logs the real client IP post-deploy).
+- [ ] EA-ADR-015 pre-production-PII assessment + signed Railway/R2 DPAs (compliance brief C-1..C-4).
+- [ ] `CORS_ALLOWED_ORIGINS` + `COOKIE_DOMAIN` set to the real brand domain.
