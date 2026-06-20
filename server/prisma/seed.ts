@@ -52,6 +52,27 @@ async function main() {
   }
 
   console.log(`[seed] upserted ${PERMISSIONS.length} permissions`);
+
+  const AI_SETTINGS = [
+    { key: 'ai.enabled', value: 'false' },
+    { key: 'ai.tier.classify', value: 'claude-3-haiku-20240307' },
+    { key: 'ai.tier.agent', value: 'claude-3-5-sonnet-20240620' },
+    { key: 'ai.tier.complex', value: 'claude-3-opus-20240229' },
+  ];
+
+  for (const s of AI_SETTINGS) {
+    await prisma.setting.upsert({
+      where: { key_businessId: { key: s.key, businessId: PLATFORM_BUSINESS_ID } },
+      create: {
+        key: s.key,
+        value: s.value,
+        isSecret: false,
+        businessId: PLATFORM_BUSINESS_ID,
+      },
+      update: { value: s.value, isSecret: false },
+    });
+  }
+  console.log(`[seed] upserted ${AI_SETTINGS.length} AI governance settings`);
 }
 
 main()
