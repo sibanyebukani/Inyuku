@@ -80,6 +80,8 @@ jobs:
         run: npm run prisma:generate
       - name: Run migrations
         run: npx prisma migrate deploy
+      - name: Seed (permissions registry + platform-sentinel business, ADR-INY-013)
+        run: npm run db:seed
       - name: Type check
         run: npm run typecheck
       - name: Lint
