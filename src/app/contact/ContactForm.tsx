@@ -1,21 +1,37 @@
 'use client'
+
 import { useState } from 'react'
+import { postJson } from '@/lib/api-client'
 
 const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export default function ContactForm() {
   const [form, setForm] = useState({ name: '', email: '', message: '' })
   const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!form.name.trim()) return setError('Please enter your name.')
     if (!emailRe.test(form.email)) return setError('Please enter a valid email address.')
     if (!form.message.trim()) return setError('Please enter a message.')
+
     setError(null)
-    // TODO(M1): POST { ...form, source: 'contact' } to /api/leads once the backend is live.
-    setSubmitted(true)
+    setLoading(true)
+    try {
+      await postJson('/api/leads', {
+        source: 'contact',
+        name: form.name,
+        email: form.email,
+        message: form.message,
+      })
+      setSubmitted(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   if (submitted) {
@@ -48,8 +64,13 @@ export default function ContactForm() {
           onChange={(e) => setForm((s) => ({ ...s, message: e.target.value }))}
           className="w-full px-4 py-3.5 rounded-lg text-[15px] bg-[#F6F2EC] border border-[#E7E5E4] outline-none focus:ring-2 focus:ring-[#E86A34] resize-none" />
       </div>
-      <button type="submit" className="w-full py-4 rounded-lg text-[15px] font-semibold text-white" style={{ backgroundColor: '#E86A34' }}>
-        Send message
+      <button
+        type="submit"
+        disabled={loading}
+        className="w-full py-4 rounded-lg text-[15px] font-semibold text-white disabled:opacity-60"
+        style={{ backgroundColor: '#E86A34' }}
+      >
+        {loading ? 'Sending…' : 'Send message'}
       </button>
     </form>
   )
