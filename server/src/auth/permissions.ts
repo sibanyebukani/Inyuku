@@ -14,6 +14,19 @@ export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'consent:write',
     'ai:invoke',
     'ai:usage:read',
+    // M2 commerce
+    'catalog:read',
+    'catalog:write',
+    'catalog:read_cost',
+    'inventory:read',
+    'inventory:write',
+    'order:read',
+    'order:write',
+    'customer:read',
+    'customer:write',
+    'dashboard:read',
+    'dashboard:read_financial',
+    'sync:write',
   ],
   MERCHANT_STAFF: [
     'business:read',
@@ -21,6 +34,17 @@ export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'settings:read',
     'consent:read',
     'ai:invoke',
+    // M2 commerce (no cost/financial split)
+    'catalog:read',
+    'catalog:write',
+    'inventory:read',
+    'inventory:write',
+    'order:read',
+    'order:write',
+    'customer:read',
+    'customer:write',
+    'dashboard:read',
+    'sync:write',
   ],
   ADMIN: [
     'platform:business:read',
@@ -30,7 +54,16 @@ export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'audit:read',
   ],
   SUPPORT: ['platform:business:read', 'lead:read', 'audit:read'],
-  AI_AGENT: ['business:read', 'ai:invoke'],
+  AI_AGENT: [
+    'business:read',
+    'ai:invoke',
+    // M2 read-only
+    'catalog:read',
+    'inventory:read',
+    'order:read',
+    'customer:read',
+    'dashboard:read',
+  ],
 };
 
 export function effectivePermissions(
