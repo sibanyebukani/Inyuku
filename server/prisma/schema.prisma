@@ -135,12 +135,18 @@ model Business {
   createdAt DateTime       @default(now()) @map("created_at")
   updatedAt DateTime       @updatedAt @map("updated_at")
 
-  memberships Membership[]
-  consents    Consent[]
-  aiUsages    AiUsage[]
-  auditLogs   AuditLog[]
-  errorLogs   ErrorLog[]
-  permissions Permission[]
+  memberships     Membership[]
+  consents        Consent[]
+  aiUsages        AiUsage[]
+  auditLogs       AuditLog[]
+  errorLogs       ErrorLog[]
+  permissions     Permission[]
+  products        Product[]
+  stockMovements  StockMovement[]
+  orders          Order[]
+  orderLines      OrderLine[]
+  customers       Customer[]
+  analyticsEvents AnalyticsEvent[]
 
   @@map("businesses")
 }
@@ -233,6 +239,7 @@ model Consent {
   business     Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
   user         User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
   revocations  ConsentRevocation[]
+  customers    Customer[]
 
   @@map("consents")
 }
@@ -285,4 +292,190 @@ model Lead {
   updatedAt DateTime   @updatedAt @map("updated_at")
 
   @@map("leads")
+}
+
+// ─── M2 Commerce Core ────────────────────────────────────────────────────────
+
+enum ProductStatus {
+  ACTIVE
+  ARCHIVED
+
+  @@map("product_status")
+}
+
+enum StockMovementType {
+  OPENING
+  ADJUSTMENT
+  SALE
+  SALE_REVERSAL
+  RECEIVE
+
+  @@map("stock_movement_type")
+}
+
+enum OrderStatus {
+  DRAFT
+  COMPLETED
+  VOID
+
+  @@map("order_status")
+}
+
+enum OrderChannel {
+  IN_PERSON
+  WHATSAPP
+  ONLINE
+
+  @@map("order_channel")
+}
+
+enum PaymentState {
+  PAID
+  UNPAID
+
+  @@map("payment_state")
+}
+
+enum FulfilmentStatus {
+  PENDING
+  FULFILLED
+  PARTIALLY_FULFILLED
+  CANCELLED
+
+  @@map("fulfilment_status")
+}
+
+enum SyncOpStatus {
+  APPLIED
+  DUPLICATE
+  CONFLICT
+  REJECTED
+
+  @@map("sync_op_status")
+}
+
+model Product {
+  id                 String        @id @default(cuid()) @map("id")
+  businessId         String        @map("business_id")
+  clientId           String        @map("client_id")
+  name               String        @map("name")
+  sellPriceCents     Int           @map("sell_price_cents")
+  costPriceCents     Int?          @map("cost_price_cents")
+  imageUrl           String?       @map("image_url")
+  imageKey           String?       @map("image_key")
+  lowStockThreshold  Int?          @map("low_stock_threshold")
+  status             ProductStatus @default(ACTIVE) @map("status")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+
+  business       Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  stockMovements StockMovement[]
+  orderLines     OrderLine[]
+
+  @@unique([businessId, clientId])
+  @@map("products")
+}
+
+model StockMovement {
+  id         String            @id @default(cuid()) @map("id")
+  businessId String            @map("business_id")
+  clientId   String            @map("client_id")
+  productId  String            @map("product_id")
+  type       StockMovementType @map("type")
+  qtyDelta   Int               @map("qty_delta")
+  reason     String?           @map("reason")
+  orderId    String?           @map("order_id")
+  occurredAt DateTime          @map("occurred_at")
+  createdAt  DateTime          @default(now()) @map("created_at")
+  updatedAt  DateTime          @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  order    Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, clientId])
+  @@map("stock_movements")
+}
+
+model Order {
+  id               String           @id @default(cuid()) @map("id")
+  businessId       String           @map("business_id")
+  clientId         String           @map("client_id")
+  orderNumber      String           @map("order_number")
+  customerId       String?          @map("customer_id")
+  status           OrderStatus      @default(DRAFT) @map("status")
+  channel          OrderChannel     @default(IN_PERSON) @map("channel")
+  paymentState     PaymentState     @default(PAID) @map("payment_state")
+  subtotalCents    Int              @map("subtotal_cents")
+  totalCents       Int              @map("total_cents")
+  fulfilmentStatus FulfilmentStatus? @map("fulfilment_status")
+  paymentRef       String?          @map("payment_ref")
+  escrowRef        String?          @map("escrow_ref")
+  occurredAt       DateTime         @map("occurred_at")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  business       Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer       Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  lines          OrderLine[]
+  stockMovements StockMovement[]
+
+  @@unique([businessId, clientId])
+  @@unique([businessId, orderNumber])
+  @@map("orders")
+}
+
+model OrderLine {
+  id             String  @id @default(cuid()) @map("id")
+  businessId     String  @map("business_id")
+  orderId        String  @map("order_id")
+  productId      String? @map("product_id")
+  nameSnapshot   String  @map("name_snapshot")
+  unitPriceCents Int     @map("unit_price_cents")
+  qty            Int     @map("qty")
+  lineTotalCents Int     @map("line_total_cents")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  order    Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product  Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@map("order_lines")
+}
+
+model Customer {
+  id         String   @id @default(cuid()) @map("id")
+  businessId String   @map("business_id")
+  clientId   String   @map("client_id")
+  name       String   @map("name")
+  phone      String?  @map("phone")
+  email      String?  @map("email")
+  consentId  String?  @map("consent_id")
+  notes      String?  @map("notes")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  consent  Consent? @relation(fields: [consentId], references: [id], onDelete: SetNull)
+  orders   Order[]
+
+  @@unique([businessId, clientId])
+  @@map("customers")
+}
+
+model AnalyticsEvent {
+  id         String   @id @default(cuid()) @map("id")
+  businessId String?  @map("business_id")
+  event      String   @map("event")
+  properties Json?    @map("properties")
+  distinctId String   @map("distinct_id")
+  source     String   @map("source")
+  occurredAt DateTime @map("occurred_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  business Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+
+  @@map("analytics_events")
 }
