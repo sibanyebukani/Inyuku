@@ -1043,4 +1043,40 @@ describe('/sync convergence suite', () => {
     const ids = (listR.json().data.products as { id: string }[]).map((p) => p.id);
     expect(ids).not.toContain(productId);
   });
+
+  it('CUSTOMER UPDATE via sync resolves by clientId when id is omitted (offline-first edit)', async () => {
+    const clientId = `sync-cust-up-${Date.now()}`;
+    await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/customers`,
+      headers: { cookie: `inyuku_at=${ownerToken}`, 'content-type': 'application/json' },
+      payload: { clientId, name: 'Before' },
+    });
+
+    const r = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/sync`,
+      headers: { cookie: `inyuku_at=${ownerToken}`, 'content-type': 'application/json' },
+      payload: {
+        ops: [{
+          clientId,
+          entity: 'customer',
+          op: 'update',
+          occurredAt: new Date().toISOString(),
+          payload: { name: 'After', phone: '+27821234567' },
+        }],
+      },
+    });
+    expect(r.statusCode).toBe(200);
+    const results = r.json().data.results as { status: string; serverId?: string }[];
+    expect(results[0].status).toBe('APPLIED');
+
+    const getR = await app.inject({
+      method: 'GET',
+      url: `/v1/businesses/${bizA.id}/customers/${results[0].serverId}`,
+      headers: authHeader(ownerToken),
+    });
+    expect(getR.json().data.customer.name).toBe('After');
+    expect(getR.json().data.customer.phone).toBe('+27821234567');
+  });
 });

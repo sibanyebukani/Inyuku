@@ -189,15 +189,28 @@ export async function applySyncOp(
         return { clientId: op.clientId, status: 'REJECTED', error: 'FORBIDDEN' };
       }
       const payload = op.payload as {
-        id: string;
+        id?: string;
         name?: string;
         phone?: string;
         email?: string;
         notes?: string;
       };
+      // The frontend may not yet know the server id for a customer that was
+      // created offline and edited before its first sync. Resolve by clientId
+      // in that case, mirroring the product update branch.
+      let customerId = payload.id;
+      if (!customerId) {
+        const existing = await prisma.customer.findUnique({
+          where: { businessId_clientId: { businessId, clientId: op.clientId } },
+        });
+        if (!existing) {
+          return { clientId: op.clientId, status: 'REJECTED', error: 'Customer not found' };
+        }
+        customerId = existing.id;
+      }
       const { customer, conflict } = await updateCustomer(
         businessId,
-        payload.id,
+        customerId,
         { name: payload.name, phone: payload.phone, email: payload.email, notes: payload.notes },
         occurredAt,
       );
