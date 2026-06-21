@@ -1,11 +1,12 @@
 # Inyuku Digital — Project Intelligence (CLAUDE.md)
 
-> **Last synced:** 2026-06-19 (Documentation Lead, post-M1-contract-freeze + Fastify amendment).
+> **Last synced:** 2026-06-21 (Documentation Lead, post-M2-design-freeze; M0+M1 merged).
 > This file reflects the **resolved** architecture. The roadmap's original "Clerk + Supabase" stack
 > **no longer applies** — see `docs/DECISIONS.md` and EA-ADR-014/015/016.
 > **Backend framework is Fastify 5 (TypeScript)** — EA-ADR-014 was **amended (2026-06-19)** and **EA-ADR-016**
-> added (the reference chassis is Fastify, not Express). The frozen M1 platform-foundation contracts now live
-> in `docs/API.md` + `docs/SCHEMA.md`.
+> added (the reference chassis is Fastify, not Express). The frozen M1 platform-foundation contracts and the
+> frozen **M2 Commerce Core** contracts now live in `docs/API.md` + `docs/SCHEMA.md`
+> (M2 source: `docs/specs/2026-06-21-m2-commerce-core-*`).
 
 ## 1. Project overview
 
@@ -16,9 +17,11 @@ digital payments (escrow), inventory & orders, a merchant dashboard, and an AI b
 
 - **Program shape:** full platform, re-sequenced realistically (~9–14 months), small team (3–6), greenfield.
 - **Operating environment:** mobile-first, load-shedding, expensive/intermittent data → offline-first PWA, i18n.
-- **Status:** Next.js migration done (M0-B/C); **M1 platform-foundation contracts frozen** (bukani-architect,
-  2026-06-19) → `docs/API.md` + `docs/SCHEMA.md`; EA-ADR-014/015 **SIGNED** (M1 gate #4 cleared); M1-A build
-  plan in progress.
+- **Status:** **M0 + M1 merged.** M1 platform-foundation contracts frozen (bukani-architect, 2026-06-19) →
+  `docs/API.md` + `docs/SCHEMA.md`; EA-ADR-014/015 **SIGNED**; M1-B auth/tenancy STRIDE gate **PASS**.
+  **M2 (Commerce Core) is IN PROGRESS — in design**: product brief (bukani-product) + frozen architect
+  contracts (bukani-architect) persisted 2026-06-21. M3 (WhatsApp) / M4 (payments) / M5 (AI) ahead;
+  lending deferred. See `docs/ROADMAP.md`.
 
 ## 2. Resolved stack (Option A — full portfolio reference-architecture snap)
 
@@ -57,8 +60,28 @@ digital payments (escrow), inventory & orders, a merchant dashboard, and an AI b
 - **PII minimised in prompts; logs PII-masked** (POPIA).
 - Prisma models use **snake-case `@@map`**.
 
+**M2 Commerce Core conventions (mandatory):**
+- **Stock-as-movements** — stock is an **append-only `StockMovement` ledger** (signed `qtyDelta`), **never
+  a mutable column**; current stock = `SUM(qtyDelta)` (computed, no cache in M2). ADR-INY-013/014.
+- **Client `clientId` idempotency** — offline-creatable entities (`Product`, `StockMovement`, `Order`,
+  `Customer`) carry a client-generated `clientId`, `@@unique([businessId, clientId])`; batch sync
+  (`POST .../sync`, ≤100 ops, partial success, per-op status) resolves conflicts **LWW on `occurredAt`**.
+  Offline = **P0**; negative stock is **allowed-and-flagged**, not rejected. ADR-INY-015/016.
+- **ZAR cents** everywhere for money (`sellPriceCents`, `costPriceCents`, line/order totals).
+- **RBAC cost-split** — `costPriceCents` and financial dashboard fields are **owner-only**
+  (`catalog:read_cost`, `dashboard:read_financial`); `MERCHANT_STAFF` gets all commerce perms EXCEPT
+  those two; `AI_AGENT` is read-only commerce, no `*:write`/`sync:write`.
+- **Order-line price snapshotting** — `OrderLine` snapshots `nameSnapshot`/`unitPriceCents` at sale time;
+  `productId` is `onDelete: SetNull`.
+- **`AnalyticsEvent`** is a first-party, internal-only stream (PII-masked) — **no outward API/export**
+  (ADR-006 boundary); PostHog is a gated new sub-processor (ships dark).
+- Dashboard day boundary = **SAST (`Africa/Johannesburg`)**.
+
 **Baseline tables (Prisma):** User, RefreshToken, PasswordResetToken, PhoneOtp, Business, Membership,
 Permission, AuditLog, ErrorLog, Setting, Consent, ConsentRevocation, AiUsage, Lead.
+**M2 Commerce Core tables:** Product, StockMovement, Order, OrderLine, Customer, AnalyticsEvent
+(new enums: ProductStatus, StockMovementType, OrderStatus, OrderChannel, PaymentState, FulfilmentStatus,
+SyncOpStatus).
 
 ## 4. Compliance posture
 
@@ -68,7 +91,11 @@ Permission, AuditLog, ErrorLog, Setting, Consent, ConsentRevocation, AiUsage, Le
   sub-processor risk assessment + signed DPAs** (EA-ADR-015 gate).
 - **PCI: SAQ-A** — card data never touches Inyuku (TradeSafe-hosted gateway). Card-present POS deferred.
 - **Lending-data boundary:** internal analytics only, not a credit score. NCA/NCR deferred with lending.
-- **CPA** review on the commerce surface in M2/M4.
+- **CPA** review on the commerce surface in M2/M4 (M2 lands the commerce surface).
+- **(M2) Customer-directory consent ruling** (merchant-as-responsible-party vs Inyuku-as-operator) is a
+  bukani-compliance dependency that **GA-gates the customer directory** (`Customer.consentId` nullable
+  until ruled). **(M2) PostHog** is a NEW sub-processor → EA-ADR-015 extension (EU/self-host pin + DPA
+  before production events; ships dark). See `docs/POPIA.md` §7a.
 
 ## 5. Sequencing (resolved)
 
@@ -107,11 +134,15 @@ Permission, AuditLog, ErrorLog, Setting, Consent, ConsentRevocation, AiUsage, Le
 | Doc | Purpose |
 |---|---|
 | `CLAUDE.md` | This file — resolved stack, conventions, binding EA-ADRs. |
-| `docs/API.md` | **M1 API contract** — response envelope, auth + cookies + rotation, permission registry + role map, OpenAPI route list, `/v1/leads`, env + Settings contract. |
-| `docs/SCHEMA.md` | **M1 Prisma schema** — table-by-table, tenancy/money/soft-delete conventions, audit `(entity,action)` tuples. |
-| `docs/DECISIONS.md` | Inyuku ADR-001..007 + **ADR-INY-008..011** (M1 foundation; reference EA-ADR-014/015/016). |
-| `docs/POPIA.md` | Processing register, §72 transfer log, sub-processors, consent ledger, retention, lending boundary. |
-| `docs/THREAT-MODEL.md` | STRIDE for payments, AI agent, auth, PII storage + sign-off gates. |
+| `docs/PERSONAS.md` | **Personas** — Nomsa (P0), Sipho (RBAC cost-split), Thandi (validation/seams). |
+| `docs/ROADMAP.md` | **Milestone status** — M0/M1 done, M2 in progress, M3/M4/M5 ahead, lending deferred. |
+| `docs/API.md` | **M1 + M2 API contract** — envelope, auth/cookies/rotation, permission registry + role map, route lists (M1 + M2 commerce), sync envelope, `/v1/leads`, env + Settings. |
+| `docs/SCHEMA.md` | **M1 + M2 Prisma schema** — table-by-table (incl. Product/StockMovement/Order/OrderLine/Customer/AnalyticsEvent), tenancy/money/idempotency conventions, enums, audit tuples. |
+| `docs/DECISIONS.md` | Inyuku ADR-001..007 + **ADR-INY-008..012** (M1) + **ADR-INY-013..016** (M2 commerce; reference EA-ADR-014/015/016). |
+| `docs/POPIA.md` | Processing register (incl. Customer PII + PostHog), §72 transfer log, sub-processors, consent ledger, M2 dependencies/gates, retention, lending boundary. |
+| `docs/THREAT-MODEL.md` | STRIDE for payments, AI agent, auth, PII storage, **M2 commerce (sync/RBAC/PII/PostHog)** + sign-off gates. |
+| `docs/specs/2026-06-21-m2-commerce-core-product-brief.md` | M2 product brief (bukani-product). |
+| `docs/specs/2026-06-21-m2-commerce-core-contracts.md` | M2 frozen architect contracts (bukani-architect). |
 | `docs/superpowers/specs/2026-06-18-inyuku-full-platform-roadmap-design.md` | Program roadmap (stack rows now point to DECISIONS.md). |
 | `docs/superpowers/plans/2026-06-18-m0a-repository-foundation.md` | M0-A implementation plan. |
 | `docs/SDLC_ROADMAP.md` | **SUPERSEDED** — original-site tech-debt inventory only. |

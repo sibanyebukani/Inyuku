@@ -10,7 +10,9 @@
 >
 > These product ADRs implement and reference those EA-ADRs. The full cross-portfolio reasoning lives in the
 > EA register; the entries here record the Inyuku-specific shape. **ADR-001..007** are the product topology
-> decisions; **ADR-INY-008..011** persist the frozen M1 platform-foundation contracts.
+> decisions; **ADR-INY-008..012** persist the frozen M1 platform-foundation contracts; **ADR-INY-013..016**
+> persist the frozen M2 Commerce Core contracts (stock-as-movements, SUM stock, offline negative-stock,
+> sync idempotency/LWW — `docs/specs/2026-06-21-m2-commerce-core-contracts.md`).
 
 This log supersedes the stack rows of the §3 ADR table in
 `docs/superpowers/specs/2026-06-18-inyuku-full-platform-roadmap-design.md`. The roadmap's original
@@ -375,3 +377,117 @@ workspaces — each installs/builds/deploys independently — and CI runs a seco
 - npm/pnpm workspace (adds complexity before it is needed; independent deployables do not benefit from
   workspace linking at this stage).
 - Backend inside `src/server` of the Next.js app (would blur the pure-client boundary).
+
+---
+
+## ADR-INY-013 — Stock is an append-only movement ledger, not a mutable integer column
+
+**Date:** 2026-06-21
+**Status:** Accepted (M2 Commerce Core)
+**Decided by:** bukani-architect (Inyuku)
+**References:** ADR-005, ADR-INY-016, EA-ADR-014; M2 brief/contracts (`docs/specs/2026-06-21-*`)
+
+### Context
+M2 needs inventory that works offline-first (founder ruling: offline = P0). A mutable `stock` integer
+column cannot converge cleanly when two offline clients each mutate it and later sync — last-write-wins on
+a single counter silently loses sales.
+
+### Decision
+Model stock as a **`StockMovement`** append-only ledger: each change is an immutable, signed `qtyDelta`
+row (`OPENING` / `ADJUSTMENT` / `SALE` / `SALE_REVERSAL` / `RECEIVE`) with an `occurredAt` and a
+per-tenant `clientId`. **`Product` carries no stock column.** Current stock = `SUM(qtyDelta)`. Order
+complete emits a `SALE`; void emits a `SALE_REVERSAL`. Movements are never updated or deleted.
+
+### Consequences
+- Offline clients append movements independently; sync dedupes on `clientId` and the ledger is
+  inherently convergent (sum is commutative) — no lost-update on a counter.
+- Inventory is fully auditable (every change is a row); `(stock_movement, CREATE)` is audited.
+- Reads compute a sum (see ADR-INY-014 for the no-cache decision and its re-eval trigger).
+
+### Alternatives rejected
+- Mutable `Product.stock` integer (non-convergent offline; loses concurrent sales; no audit trail).
+- Periodic stock-take snapshots only (loses per-sale granularity and real-time low-stock alerts).
+
+---
+
+## ADR-INY-014 — Dashboard computes current stock via `SUM`; no cache column in M2
+
+**Date:** 2026-06-21
+**Status:** Accepted (M2 Commerce Core) — **re-eval trigger noted**
+**Decided by:** bukani-architect (Inyuku)
+**References:** ADR-INY-013
+
+### Context
+Stock-as-movements (ADR-INY-013) means current stock and dashboard low-stock counts are aggregates over
+the ledger. A denormalised cached-balance column would speed reads but reintroduces a mutable value that
+can drift from the ledger and complicates offline convergence.
+
+### Decision
+In M2, compute current stock and low-stock counts with `SUM(StockMovement.qtyDelta)` **on read** — **no
+cached-balance column**. Keep the ledger as the single source of truth.
+
+### Consequences
+- Simpler, drift-free model for M2 volumes; no cache-invalidation logic.
+- **Re-evaluation trigger:** re-assess a per-product cached balance / materialised view at **~50k
+  movements** (per business) if read latency degrades.
+
+### Alternatives rejected
+- A cached `Product.stockBalance` column now (premature optimisation; drift risk; offline-merge complexity).
+
+---
+
+## ADR-INY-015 — Offline negative stock is allowed-and-flagged, not hard-rejected
+
+**Date:** 2026-06-21
+**Status:** Accepted (M2 Commerce Core) — founder-adopted
+**Decided by:** founder ruling, bukani-architect (Inyuku)
+**References:** ADR-INY-013, ADR-INY-016
+
+### Context
+With offline-first sales, a client may sell stock it cannot see was already depleted by another device.
+Hard-rejecting a sale that drives stock negative at sync time would **defeat offline-first** — the sale
+already physically happened in the shop; refusing it loses real revenue data.
+
+### Decision
+**Allow** movements/sales that take computed stock negative; **flag** the condition (surfaced to the
+merchant for reconciliation) rather than rejecting. The founder adopted this explicitly: the ledger
+records reality; reconciliation is a merchant workflow, not a sync hard-stop.
+
+### Consequences
+- Sync never rejects a sale purely for insufficient stock; negative balances are visible and actionable.
+- Low-stock / negative-stock surfacing is a dashboard/UX concern, not a write gate.
+
+### Alternatives rejected
+- Hard-reject on negative stock (breaks offline-first; loses real sales; bad for the Nomsa persona).
+
+---
+
+## ADR-INY-016 — Offline sync: client `clientId` idempotency + last-writer-wins on `occurredAt`
+
+**Date:** 2026-06-21
+**Status:** Accepted (M2 Commerce Core)
+**Decided by:** bukani-architect (Inyuku)
+**References:** ADR-INY-013, ADR-INY-015, ADR-005; M2 contracts (`docs/specs/2026-06-21-m2-commerce-core-contracts.md`)
+
+### Context
+Offline-first (founder P0) requires a deterministic, retry-safe way to push locally-created
+products/stock-movements/orders/customers and converge with the server and other devices.
+
+### Decision
+Every offline-creatable entity carries a **client-generated `clientId`**, uniqued per tenant
+(`@@unique([businessId, clientId])`). A **batch-sync endpoint** (`POST .../sync`, `sync:write`) accepts
+**≤ 100 ops** with **partial success** and a **per-op status** (`SyncOpStatus`: `APPLIED` / `DUPLICATE` /
+`CONFLICT` / `REJECTED`). Re-submitting an applied `clientId` is a `DUPLICATE` no-op (idempotent). For
+updates, conflicts resolve by **last-writer-wins on `occurredAt`**. The append-only stock ledger
+(ADR-INY-013) is inherently convergent and needs no LWW.
+
+### Consequences
+- Network retries are safe (idempotent on `clientId`); the client can replay its queue.
+- The sync envelope (`clientId`, `entity`, `op`, `occurredAt`, `payload`) + per-op response is in
+  `docs/API.md` § Batch sync.
+- **bukani-security review of the sync/idempotency path is a pre-GA gate** (`docs/THREAT-MODEL.md` M2).
+
+### Alternatives rejected
+- Server-generated IDs only (not retry-safe offline; can't dedupe client replays).
+- CRDT/vector-clock convergence (over-engineered for M2; LWW + append-only ledger suffices).
+- All-or-nothing batch (one bad op fails the whole queue; poor offline UX).

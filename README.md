@@ -8,10 +8,13 @@ WhatsApp commerce, digital payments, inventory, and an AI business assistant.
 Next.js (App Router) — migrated from the Vite baseline in M0-B. The resolved
 stack (EA-ADR-014 amended/015/016) is a **Next.js frontend (Vercel) + Fastify 5 (TypeScript)/Prisma backend (Railway) + Postgres (EU)**,
 in-house JWT auth, TradeSafe escrow, 360dialog WhatsApp, Claude via `lib/ai.js`.
-See `docs/superpowers/specs/2026-06-18-inyuku-full-platform-roadmap-design.md`
-for the program roadmap, `docs/DECISIONS.md` for the architecture ADRs (incl.
-ADR-INY-008..011), `docs/API.md` + `docs/SCHEMA.md` for the M1 backend contracts,
-and `docs/superpowers/plans/` for milestone plans.
+**M0 + M1 are merged; M2 (Commerce Core) is in design** — catalog, inventory
+(stock-as-movements), orders, customer directory, dashboard, offline-first sync,
+and PostHog analytics. See `docs/ROADMAP.md` for milestone status,
+`docs/superpowers/specs/2026-06-18-inyuku-full-platform-roadmap-design.md` for the
+program roadmap, `docs/DECISIONS.md` for the architecture ADRs (incl. ADR-INY-008..016),
+`docs/API.md` + `docs/SCHEMA.md` for the M1 + M2 backend contracts, `docs/PERSONAS.md`
+for the design targets, and `docs/superpowers/plans/` for milestone plans.
 
 ## Requirements
 

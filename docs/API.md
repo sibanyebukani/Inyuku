@@ -1,10 +1,11 @@
 # Inyuku Digital — API Reference (API.md)
 
 > **Owner:** bukani-docs · **Source of truth:** the OpenAPI contract emitted by the backend (CI drift check).
-> This doc mirrors the **M1 baseline** contract produced by bukani-architect (2026-06-19). When the OpenAPI
-> spec and this doc disagree, **the spec wins** — file a docs fix.
+> This doc mirrors the **M1 baseline** contract (bukani-architect, 2026-06-19) plus the **M2 Commerce Core**
+> contracts (bukani-architect, 2026-06-21). When the OpenAPI spec and this doc disagree, **the spec wins** —
+> file a docs fix.
 > **Stack:** Fastify 5 (TypeScript) + Prisma 6 on Railway. API host: `api.inyuku.co.za` (provisional, ADR-004).
-> See `docs/SCHEMA.md`, `CLAUDE.md`.
+> See `docs/SCHEMA.md`, `CLAUDE.md`. **M2 contracts:** `docs/specs/2026-06-21-m2-commerce-core-contracts.md`.
 
 ## Response envelope
 
@@ -127,16 +128,28 @@ one business does not grant access to another (cross-tenant → 403/404). The `A
 | `platform:business:suspend` | Suspend a business (platform) |
 | `ai:invoke` | Invoke the AI gateway |
 | `ai:usage:read` | Read AI usage/cost |
+| `catalog:read` *(M2)* | Read products |
+| `catalog:write` *(M2)* | Create / update / archive products + image |
+| `catalog:read_cost` *(M2)* | **Owner-only** — read `costPriceCents` / margin |
+| `inventory:read` *(M2)* | Read stock levels |
+| `inventory:write` *(M2)* | Post stock movements |
+| `order:read` *(M2)* | Read orders |
+| `order:write` *(M2)* | Create / complete / void orders, set payment state |
+| `customer:read` *(M2)* | Read the customer directory |
+| `customer:write` *(M2)* | Create / update customers |
+| `dashboard:read` *(M2)* | Read the dashboard (non-financial) |
+| `dashboard:read_financial` *(M2)* | **Owner-only** — financial dashboard fields |
+| `sync:write` *(M2)* | Submit a batch-sync request |
 
 ### Role map (defaults)
 
 | Role | Default posture |
 |---|---|
-| `MERCHANT_OWNER` | Full tenant control: `business:*`, `member:*`, `settings:read/update`, `audit:read`, `consent:*`, `ai:invoke`, `ai:usage:read`. (`settings:read_secret` explicit-grant.) |
-| `MERCHANT_STAFF` | Operational subset: `business:read`, `member:read`, `settings:read`, `consent:read`, `ai:invoke`. |
+| `MERCHANT_OWNER` | Full tenant control: `business:*`, `member:*`, `settings:read/update`, `audit:read`, `consent:*`, `ai:invoke`, `ai:usage:read`. **M2:** all `catalog:*` (incl. `catalog:read_cost`), `inventory:*`, `order:*`, `customer:*`, `dashboard:read` + `dashboard:read_financial`, `sync:write`. (`settings:read_secret` explicit-grant.) |
+| `MERCHANT_STAFF` | Operational subset: `business:read`, `member:read`, `settings:read`, `consent:read`, `ai:invoke`. **M2:** all commerce permissions **EXCEPT** `catalog:read_cost` and `dashboard:read_financial` — i.e. `catalog:read/write`, `inventory:read/write`, `order:read/write`, `customer:read/write`, `dashboard:read`, `sync:write`. (Sipho cannot see cost / margin / financial totals.) |
 | `ADMIN` | Platform admin: `platform:business:read/suspend`, `lead:read/update`, `audit:read`, plus tenant reads as scoped. |
 | `SUPPORT` | Read-mostly platform support: `platform:business:read`, `lead:read`, `audit:read`. |
-| `AI_AGENT` | Read + `ai:invoke` only — **no writes** (EA-ADR-012). |
+| `AI_AGENT` | Read + `ai:invoke` only — **no writes** (EA-ADR-012). **M2:** read-only commerce — `catalog:read`, `inventory:read`, `order:read`, `customer:read`, `dashboard:read`. **No** `catalog:read_cost`, `dashboard:read_financial`, `sync:write`, or any `*:write`. |
 
 > The role defaults above are the documented baseline; the authoritative defaults map ships in code with the
 > permission registry. Explicit `Membership.permissions[]` entries are unioned on top.
@@ -168,6 +181,105 @@ one business does not grant access to another (cross-tenant → 403/404). The `A
 
 All `/v1/businesses/:businessId/*` routes resolve and enforce the tenant `businessId`; a caller without a
 matching membership/permission gets 403/404.
+
+---
+
+## Route list (M2 — Commerce Core)
+
+All routes are tenant-scoped under `/v1/businesses/:businessId/*` and require an access cookie.
+
+| Method | Path | Permission | Audit |
+|---|---|---|---|
+| GET | `/products` | `catalog:read` | — |
+| POST | `/products` | `catalog:write` | `(product, CREATE)` |
+| GET | `/products/:id` | `catalog:read` | — |
+| PATCH | `/products/:id` | `catalog:write` | `(product, UPDATE)` |
+| DELETE | `/products/:id` | `catalog:write` | `(product, DELETE)` — **soft** (→ `ARCHIVED`) |
+| POST | `/products/:id/image` | `catalog:write` | `(product, UPDATE)` |
+| GET | `/products/:id/stock` | `inventory:read` | — (current stock = `SUM(qtyDelta)`) |
+| POST | `/stock-movements` | `inventory:write` | `(stock_movement, CREATE)` |
+| GET | `/orders` | `order:read` | — |
+| POST | `/orders` | `order:write` | `(order, CREATE)` |
+| GET | `/orders/:id` | `order:read` | — |
+| POST | `/orders/:id/complete` | `order:write` | `(order, UPDATE)` — auto-decrement (`SALE`) |
+| POST | `/orders/:id/void` | `order:write` | `(order, UPDATE)` — reverse (`SALE_REVERSAL`) |
+| PATCH | `/orders/:id/payment` | `order:write` | `(order, UPDATE)` — set `PAID` / `UNPAID` |
+| GET | `/customers` | `customer:read` | — |
+| POST | `/customers` | `customer:write` | `(customer, CREATE)` |
+| GET | `/customers/:id` | `customer:read` | — |
+| PATCH | `/customers/:id` | `customer:write` | `(customer, UPDATE)` |
+| GET | `/dashboard` | `dashboard:read` (financial fields need `dashboard:read_financial`) | — |
+| POST | `/sync` | `sync:write` | per-applied-op audit |
+
+### Products — cost-price gating
+
+`costPriceCents` (and any derived margin) is **owner-only**: returned **only** to callers holding
+`catalog:read_cost`; omitted/masked for `MERCHANT_STAFF` and `AI_AGENT`. This is the RBAC cost-split for
+the Sipho persona (`docs/PERSONAS.md`). `DELETE /products/:id` is a **soft delete** → `status = ARCHIVED`.
+
+### Stock — movements, not a column
+
+There is **no settable stock field**. Stock changes are posted as **`StockMovement`** rows
+(ADR-INY-013) and the current level is `SUM(StockMovement.qtyDelta)` (ADR-INY-014).
+`POST /stock-movements` records manual `ADJUSTMENT` / `RECEIVE` / `OPENING`; `SALE` / `SALE_REVERSAL`
+movements are emitted by order complete/void. **Negative stock is allowed-and-flagged** when it arrives
+via offline sync (ADR-INY-015) — never hard-rejected.
+
+### Dashboard — SAST day boundary + financial gating
+
+`GET /dashboard` accepts an optional **`?date`** (defaults to today). The day boundary is computed in
+**`Africa/Johannesburg` (SAST)**. Returns today's sales, order count, low-stock items, and catalog
+counts. **Financial fields** (revenue / margin totals) are included **only** for callers holding
+`dashboard:read_financial` (owner-only).
+
+### Batch sync — offline-first contract
+
+`POST /v1/businesses/:businessId/sync` (permission `sync:write`) accepts **≤ 100 ops** per batch with
+**per-op idempotency** and **partial success** — the batch applies what it can and reports a status per
+op. Conflict resolution is **last-writer-wins on `occurredAt`** (ADR-INY-016).
+
+**Request op envelope**
+```json
+{
+  "clientId": "c_01H...",
+  "entity": "order",
+  "op": "create",
+  "occurredAt": "2026-06-21T10:00:00.000Z",
+  "payload": {}
+}
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `clientId` | string | Yes | Client-generated idempotency key (uniqued per business) |
+| `entity` | string | Yes | `product` / `stock_movement` / `order` / `customer` |
+| `op` | string | Yes | e.g. `create` / `update` |
+| `occurredAt` | string (ISO 8601) | Yes | When it happened on the client; drives LWW |
+| `payload` | object | Yes | Entity body for the op |
+
+**Per-op response status** (`SyncOpStatus`): `APPLIED`, `DUPLICATE` (same `clientId` already applied —
+no-op), `CONFLICT` (lost the last-writer-wins compare), `REJECTED` (validation/permission failure).
+
+**Success — 200 (partial success is still 200)**
+```json
+{
+  "ok": true,
+  "data": {
+    "results": [
+      { "clientId": "c_01H...", "status": "APPLIED" },
+      { "clientId": "c_02J...", "status": "DUPLICATE" },
+      { "clientId": "c_03K...", "status": "CONFLICT" }
+    ]
+  }
+}
+```
+
+**Errors**
+
+| Status | Code | When |
+|---|---|---|
+| 400 | VALIDATION_ERROR | Malformed batch / > 100 ops |
+| 403 | FORBIDDEN | Missing `sync:write` / cross-tenant |
 
 ---
 

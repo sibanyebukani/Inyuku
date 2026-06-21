@@ -22,6 +22,7 @@ Plus two cross-cutting surfaces modelled here: **auth (JWT rotation / cookies)**
 | AI Business Agent (tool-using) | **REQUIRED** (EA-ADR-012 third gate) | Before the tool-using agent ships in prod (M5) |
 | Auth (JWT rotation / cookie) | Reviewed in M1; sign-off with the M1 backend baseline | M1 |
 | PII storage (Postgres/R2, EU) | Folded into the EA-ADR-015 pre-production-PII gate (bukani-compliance + security) | Before production PII |
+| **M2 Commerce Core (sync/idempotency + RBAC cost-split + customer PII + PostHog)** | **REQUIRED** | **Before M2 GA** |
 
 AI-0/gateway-only work (no tool use, no customer-facing action) does **not** need the agent gate (EA-ADR-012).
 
@@ -100,7 +101,33 @@ Context: PII in Railway Postgres + Cloudflare R2, EU-region-pinned; §72 basis =
 
 ---
 
-## 5. M1-B auth & tenancy — STRIDE review verdict (2026-06-20)
+## 5. M2 Commerce Core — STRIDE (gate: before M2 GA)
+
+Context (M2): offline-first commerce — product catalog, stock-as-movements ledger (ADR-INY-013),
+orders, **customer PII directory**, merchant dashboard, **batch offline sync** (clientId idempotency +
+LWW on `occurredAt`, ADR-INY-016), **PostHog** first-party analytics, and an **owner/staff RBAC
+cost-split** (`catalog:read_cost` + `dashboard:read_financial` owner-only).
+
+**High-risk surfaces this milestone:** (1) the **customer PII directory**, (2) **offline-sync
+convergence / idempotency**, (3) the **PostHog sub-processor**.
+
+| STRIDE | Threat | Mitigation |
+|---|---|---|
+| **S**poofing | Forged sync ops from a non-member device | Auth cookie + `sync:write`; `businessId` resolved server-side; cross-tenant → 403/404 |
+| **T**ampering | Replayed/duplicated sync ops double-applying sales; LWW abused to clobber server state | Per-tenant `clientId` idempotency (`DUPLICATE` no-op); last-writer-wins on `occurredAt`; append-only stock ledger is convergent (no counter to clobber) |
+| **R**epudiation | "I didn't void/adjust that" | `AuditLog` on `(product/order/customer, …)` + `(stock_movement, CREATE)`; ledger is append-only |
+| **I**nfo disclosure | Staff seeing cost/margin; cross-tenant customer-PII leak; PII leaking into analytics | **RBAC cost-split** (`catalog:read_cost` / `dashboard:read_financial` owner-only); `businessId` scoping; **PII masked** in `AnalyticsEvent.properties`; PostHog gated (EU/self-host + DPA, ships dark) |
+| **D**enial of service | Oversized/abusive sync batches | **≤ 100 ops** per batch; rate-limit; partial-success (one bad op doesn't fail the queue) |
+| **E**levation | Confused-deputy via sync writing to the wrong tenant; staff escalating to financial reads | Sync ops re-checked against the caller's permissions + resolved `businessId`; cost/financial perms owner-only; `AI_AGENT` read-only commerce, no `sync:write` |
+
+**bukani-security review is a pre-GA gate** for M2, focused on: **sync/idempotency** correctness
+(replay, double-apply, LWW edge cases) and the **RBAC cost-split** (no path leaks `costPriceCents` or
+financial dashboard fields to `MERCHANT_STAFF` / `AI_AGENT`). Customer-PII processing also depends on the
+bukani-compliance consent ruling (`docs/POPIA.md` §7a) and the PostHog sub-processor gate.
+
+---
+
+## 6. M1-B auth & tenancy — STRIDE review verdict (2026-06-20)
 
 `bukani-security` reviewed the M1-B auth surface (branch `feature/m1b-auth-tenancy`, merged PR #4).
 Initial verdict **PASS-WITH-FIXES** (2 high blockers + M1/M2/M3 + L2); after fixes (commits `a685ac6`,

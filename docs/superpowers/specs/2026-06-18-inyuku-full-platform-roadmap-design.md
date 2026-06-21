@@ -85,7 +85,7 @@ several material omissions, corrected here:
 | **Email** | **Resend** | Transactional + lifecycle. EA-ADR-014. |
 | **SMS/OTP** | **BulkSMS** | OTP, alerts. EA-ADR-014. |
 | **AI** | **Claude via the portfolio `lib/ai.js` gateway** — **no direct `@anthropic-ai/sdk` calls** | Multilingual Business Agent + report generation. Inyuku = 2nd consumer → promotion review by M5. EA-ADR-009/010/011/012. |
-| **Observability** | **Sentry** (errors) + **OpenTelemetry**; analytics PostHog/Plausible TBD | Conversion + product events. EA-ADR-014. |
+| **Observability** | **Sentry** (errors) + **OpenTelemetry**; analytics = **PostHog** (CLOSED 2026-06-21, M2) | Conversion + product events. EA-ADR-014; PostHog sub-processor gated per EA-ADR-015 ext (§10). |
 
 ---
 
@@ -244,10 +244,10 @@ plan**.
 - ~~WhatsApp: Meta Cloud API direct vs 360dialog BSP~~ → **CLOSED: 360dialog BSP.**
 - ~~Payments: Yoco vs Paystack~~ → **CLOSED: TradeSafe escrow** (Inyuku never holds funds; Ozow via TradeSafe).
 - ~~Supabase region (data-residency)~~ → **REMOVED: Supabase dropped.** Residency = Railway/R2 **EU-pinned**, §72 operator DPAs (EA-ADR-015).
+- ~~Analytics: PostHog vs Plausible~~ → **CLOSED (2026-06-21, M2): PostHog** (first-party product/event stream, queryable; NO outward export per the ADR-006 boundary). New sub-processor → **EU/self-host pin + operator DPA required before production events** (EA-ADR-015 extension); ships dark until cleared. See `docs/POPIA.md`, `docs/ROADMAP.md`.
 
 **Still open:**
 - **Brand/cookie domain** — `.inyuku.co.za` is PROVISIONAL; **domain + DNS on Cloudflare is an M0 blocker before M1**.
-- Analytics: PostHog (product + events) vs Plausible (privacy-light, simpler).
 - Monthly budget ceilings (founder TBD); role owners incl. Information Officer (founder TBD).
 - `lib/ai.js` promotion to a deployed portfolio service (decision by M5, EA-ADR-009).
 

@@ -33,7 +33,9 @@ Every processing activity below is tenant-scoped by `businessId` (ADR-005). Lawf
 | Merchant business profile | business name, type, location, WhatsApp number, language | Merchants | Onboarding, service delivery | Contract | Postgres (`Business`) |
 | OTP / verification | phone OTP codes | Merchants/customers | Phone verification | Contract | Redis (`PhoneOtp`, short TTL) |
 | Catalog media | product images, story uploads | Merchants | Commerce display | Contract | Cloudflare R2 (EU) |
-| Order / customer directory | customer name, phone, order detail | End customers (data subjects of merchants) | Order processing | Contract / merchant as operator | Postgres |
+| Customer directory (M2) | customer **name, phone, email**, notes | End customers (data subjects of the merchant) | Customer book / order linkage | **Pending consent ruling** — merchant-as-responsible-party vs Inyuku-as-operator (DEPENDENCY, §10) | Postgres (`Customer`) |
+| Order / order lines (M2) | order detail, line snapshots, amounts (ZAR cents) | End customers | Order processing | Contract / merchant as operator | Postgres (`Order`, `OrderLine`) |
+| Product analytics events (M2) | event name, **PII-masked properties**, pseudonymous `distinctId` | Merchants/staff (usage) | First-party product analytics | Legitimate interest; PII masked | Postgres (`AnalyticsEvent`) + **PostHog** (new sub-processor — gated, §3/§4) |
 | Payment / transaction | escrow transaction IDs, amounts (ZAR cents), allocations | Merchants + customers | Payment via TradeSafe escrow | Contract | Postgres + TradeSafe (card data never touches Inyuku) |
 | WhatsApp messages | session content via 360dialog | Customers | Channel commerce | Contract / consent for marketing templates | 360dialog + Postgres metadata |
 | AI assistant prompts/outputs | merchant queries, generated reports | Merchants | AI Business Assistant | Contract; PII minimised in prompts | Claude via `lib/ai.js`; logged with PII redaction |
@@ -62,6 +64,7 @@ binding operator DPAs (NOT data-subject consent).** EU-region pin is mandatory a
 | Anthropic (via `lib/ai.js`) | AI inference | Minimised prompts | — | Operator terms; no training on API data (assumption under review) | Governed by EA-ADR-010/012 |
 | Resend | Transactional email | email, name | To confirm | Operator agreement | To confirm |
 | BulkSMS | SMS/OTP | phone | SA | Operator agreement | To confirm |
+| **PostHog** *(M2 — NEW)* | First-party product/event analytics | Event data (PII-masked properties, pseudonymous `distinctId`) | **EU / self-host pin required** | **Binding operator DPA** | **EA-ADR-015 extension — DPA + EU/self-host pin required before production events leave Inyuku; ships DARK until cleared** |
 
 ---
 
@@ -116,6 +119,23 @@ and requires a new regulated-program assessment (EA-ADR-015 re-evaluation trigge
 
 ---
 
+## 7a. M2 Commerce Core — PII dependencies & gates
+
+Two M2 items are routed to **bukani-compliance** and **gate GA**:
+
+1. **Customer-directory consent model (GA-gate).** The `Customer` table holds PII (name / phone / email)
+   for walk-in customer contacts. The **responsible-party question** — is the **merchant** the
+   responsible party (Inyuku = operator) for these contacts, or does Inyuku take responsible-party
+   duties? — is **a dependency routed to bukani-compliance** and **GA-gates the customer directory**.
+   `Customer.consentId` is **nullable until ruled** (links to a `Consent` once the basis is set).
+2. **PostHog as a new sub-processor (EA-ADR-015 extension).** PostHog receives event data → it is a
+   **new sub-processor** requiring an **EU/self-host pin + signed operator DPA before production events
+   leave Inyuku**. Analytics **ships dark** until cleared (added to §3/§4). PII is masked in event
+   properties; `distinctId` is pseudonymous.
+
+The `AnalyticsEvent` stream is **first-party and internal only — NO outward API/export** (the ADR-006
+boundary holds; no credit-score / third-party surface emits from it).
+
 ## 8. PCI scope
 
 Card data **never touches Inyuku** — payments run through the **TradeSafe-hosted gateway**, putting Inyuku in
@@ -129,4 +149,8 @@ Card data **never touches Inyuku** — payments run through the **TradeSafe-host
 - Sub-processor DPAs + bukani-compliance risk assessment (pre-production-PII gate).
 - Retention periods (§6 TBDs).
 - Brand/data domain confirmation (affects cookie/host config, not the POPIA basis) — see ADR-004.
-- CPA review of the commerce surface in M2/M4.
+- **CPA review of the commerce surface — due M2/M4** (M2 lands the commerce surface).
+- **(M2) Customer-directory consent model ruling** (merchant-as-responsible-party vs Inyuku-as-operator)
+  — **GA-gates the customer directory**; `Customer.consentId` nullable until ruled (§7a).
+- **(M2) PostHog sub-processor DPA + EU/self-host pin** (EA-ADR-015 extension) — analytics ships dark
+  until cleared (§3/§4/§7a).
