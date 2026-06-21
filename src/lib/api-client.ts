@@ -43,7 +43,9 @@ export async function apiFetch<T = unknown>(
     ...opts,
     credentials: opts.credentials ?? 'include',
     headers: {
-      ...(opts.body ? { 'content-type': 'application/json' } : {}),
+      // FormData bodies must NOT get a JSON content-type — the browser sets
+      // multipart/form-data with the boundary automatically.
+      ...(opts.body && !(opts.body instanceof FormData) ? { 'content-type': 'application/json' } : {}),
       ...(opts.headers ?? {}),
     },
   });

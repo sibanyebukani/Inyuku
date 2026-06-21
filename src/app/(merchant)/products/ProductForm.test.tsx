@@ -27,6 +27,28 @@ describe('ProductForm', () => {
     expect(screen.getByLabelText(/sell price/i)).toBeInTheDocument();
   });
 
+  it('shows a validation error and does NOT call create when sell price is invalid', async () => {
+    mockSession(['catalog:write']);
+    const createSpy = vi.spyOn(useProductStore.getState(), 'create').mockResolvedValue('cid');
+    render(<ProductForm />);
+    await userEvent.type(screen.getByLabelText(/name/i), 'Bread');
+    await userEvent.type(screen.getByLabelText(/sell price/i), 'abc');
+    await userEvent.click(screen.getByRole('button', { name: /save/i }));
+    expect(await screen.findByText(/enter a valid amount/i)).toBeInTheDocument();
+    expect(createSpy).not.toHaveBeenCalled();
+  });
+
+  it('shows a validation error for a price with too many decimal places', async () => {
+    mockSession(['catalog:write']);
+    const createSpy = vi.spyOn(useProductStore.getState(), 'create').mockResolvedValue('cid');
+    render(<ProductForm />);
+    await userEvent.type(screen.getByLabelText(/name/i), 'Bread');
+    await userEvent.type(screen.getByLabelText(/sell price/i), '1.999');
+    await userEvent.click(screen.getByRole('button', { name: /save/i }));
+    expect(await screen.findByText(/enter a valid amount/i)).toBeInTheDocument();
+    expect(createSpy).not.toHaveBeenCalled();
+  });
+
   it('shows the cost field for owners and creates with parsed cents', async () => {
     mockSession(['catalog:write', 'catalog:read_cost']);
     const createSpy = vi.spyOn(useProductStore.getState(), 'create').mockResolvedValue('cid');
