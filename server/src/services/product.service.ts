@@ -23,11 +23,12 @@ export interface UpdateProductInput {
 export function maskProductCost<T extends { costPriceCents?: number | null }>(
   product: T,
   membership: Membership | undefined,
-): T {
+): Omit<T, 'costPriceCents'> | T {
   const perms = new Set(membership?.permissions ?? []);
   if (!perms.has('catalog:read_cost')) {
-    const { costPriceCents: _stripped, ...rest } = product as Record<string, unknown>;
-    return rest as T;
+    const copy = { ...(product as Record<string, unknown>) };
+    delete copy.costPriceCents;
+    return copy as Omit<T, 'costPriceCents'>;
   }
   return product;
 }
