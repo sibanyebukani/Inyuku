@@ -1,0 +1,180 @@
+import { createProduct } from './product.service.js';
+import { appendMovement } from './inventory.service.js';
+import { createOrder } from './order.service.js';
+import { createCustomer, updateCustomer } from './customer.service.js';
+import { hasPermission } from '../auth/permissions.js';
+import type { Membership } from '@prisma/client';
+
+export type SyncOpStatus = 'APPLIED' | 'DUPLICATE' | 'CONFLICT' | 'REJECTED';
+
+export interface SyncOp {
+  clientId: string;
+  entity: 'product' | 'stock_movement' | 'order' | 'customer';
+  op: 'create' | 'update';
+  occurredAt: string;
+  payload: Record<string, unknown>;
+}
+
+export interface SyncOpResult {
+  clientId: string;
+  status: SyncOpStatus;
+  serverId?: string;
+  resource?: string;
+  error?: string;
+}
+
+export async function applySyncOp(
+  op: SyncOp,
+  businessId: string,
+  membership: Membership,
+): Promise<SyncOpResult> {
+  const role = membership.role;
+  const perms = membership.permissions ?? [];
+  const occurredAt = new Date(op.occurredAt);
+
+  try {
+    if (op.entity === 'product' && op.op === 'create') {
+      if (!hasPermission(role, perms, 'catalog:write')) {
+        return { clientId: op.clientId, status: 'REJECTED', error: 'FORBIDDEN' };
+      }
+      const payload = op.payload as {
+        name: string;
+        sellPriceCents: number;
+        costPriceCents?: number;
+        lowStockThreshold?: number;
+        openingStock?: number;
+      };
+      const product = await createProduct({
+        businessId,
+        clientId: op.clientId,
+        name: payload.name,
+        sellPriceCents: payload.sellPriceCents,
+        costPriceCents: payload.costPriceCents,
+        lowStockThreshold: payload.lowStockThreshold,
+        openingStock: payload.openingStock,
+      });
+      const wasNew = product.createdAt.getTime() === product.updatedAt.getTime();
+      return {
+        clientId: op.clientId,
+        status: wasNew ? 'APPLIED' : 'DUPLICATE',
+        serverId: product.id,
+        resource: 'product',
+      };
+    }
+
+    if (op.entity === 'stock_movement' && op.op === 'create') {
+      if (!hasPermission(role, perms, 'inventory:write')) {
+        return { clientId: op.clientId, status: 'REJECTED', error: 'FORBIDDEN' };
+      }
+      const payload = op.payload as {
+        productId: string;
+        type: 'OPENING' | 'ADJUSTMENT' | 'SALE' | 'SALE_REVERSAL' | 'RECEIVE';
+        qtyDelta: number;
+        reason?: string;
+        orderId?: string;
+      };
+      const { movement, duplicate } = await appendMovement({
+        businessId,
+        clientId: op.clientId,
+        productId: payload.productId,
+        type: payload.type,
+        qtyDelta: payload.qtyDelta,
+        reason: payload.reason,
+        orderId: payload.orderId,
+        occurredAt,
+      });
+      return {
+        clientId: op.clientId,
+        status: duplicate ? 'DUPLICATE' : 'APPLIED',
+        serverId: movement.id,
+        resource: 'stock_movement',
+      };
+    }
+
+    if (op.entity === 'order' && op.op === 'create') {
+      if (!hasPermission(role, perms, 'order:write')) {
+        return { clientId: op.clientId, status: 'REJECTED', error: 'FORBIDDEN' };
+      }
+      const payload = op.payload as {
+        customerId?: string;
+        status?: 'DRAFT' | 'COMPLETED';
+        paymentState?: 'PAID' | 'UNPAID';
+        lines: Array<{ productId: string; qty: number }>;
+      };
+      const { order, duplicate } = await createOrder({
+        businessId,
+        clientId: op.clientId,
+        customerId: payload.customerId,
+        status: payload.status,
+        paymentState: payload.paymentState,
+        lines: payload.lines,
+        occurredAt,
+      });
+      return {
+        clientId: op.clientId,
+        status: duplicate ? 'DUPLICATE' : 'APPLIED',
+        serverId: order.id,
+        resource: 'order',
+      };
+    }
+
+    if (op.entity === 'customer' && op.op === 'create') {
+      if (!hasPermission(role, perms, 'customer:write')) {
+        return { clientId: op.clientId, status: 'REJECTED', error: 'FORBIDDEN' };
+      }
+      const payload = op.payload as {
+        name: string;
+        phone?: string;
+        email?: string;
+        notes?: string;
+      };
+      const { customer, duplicate } = await createCustomer({
+        businessId,
+        clientId: op.clientId,
+        name: payload.name,
+        phone: payload.phone,
+        email: payload.email,
+        notes: payload.notes,
+      });
+      return {
+        clientId: op.clientId,
+        status: duplicate ? 'DUPLICATE' : 'APPLIED',
+        serverId: customer.id,
+        resource: 'customer',
+      };
+    }
+
+    if (op.entity === 'customer' && op.op === 'update') {
+      if (!hasPermission(role, perms, 'customer:write')) {
+        return { clientId: op.clientId, status: 'REJECTED', error: 'FORBIDDEN' };
+      }
+      const payload = op.payload as {
+        id: string;
+        name?: string;
+        phone?: string;
+        email?: string;
+        notes?: string;
+      };
+      const { customer, conflict } = await updateCustomer(
+        businessId,
+        payload.id,
+        { name: payload.name, phone: payload.phone, email: payload.email, notes: payload.notes },
+        occurredAt,
+      );
+      return {
+        clientId: op.clientId,
+        status: conflict ? 'CONFLICT' : 'APPLIED',
+        serverId: customer.id,
+        resource: 'customer',
+      };
+    }
+
+    return { clientId: op.clientId, status: 'REJECTED', error: 'Unknown entity/op combination' };
+  } catch (err) {
+    return {
+      clientId: op.clientId,
+      status: 'REJECTED',
+      error: err instanceof Error ? err.message : 'Unknown error',
+    };
+  }
+}

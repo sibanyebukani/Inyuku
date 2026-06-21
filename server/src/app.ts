@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import cookie from '@fastify/cookie';
+import multipart from '@fastify/multipart';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { Prisma } from '@prisma/client';
@@ -13,6 +14,7 @@ import authRoutes from './routes/v1/auth.routes.js';
 import businessRoutes from './routes/v1/businesses.routes.js';
 import adminRoutes from './routes/v1/admin.routes.js';
 import leadsRoutes from './routes/v1/leads.routes.js';
+import commerceRoutes from './routes/v1/commerce.routes.js';
 import * as Sentry from '@sentry/node';
 import authMiddleware from './middleware/auth.middleware.js';
 import permissionGuard from './middleware/require-permission.js';
@@ -53,6 +55,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
       ...(cookieDomain ? { domain: cookieDomain } : {}),
     },
   });
+  void app.register(multipart, { limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
 
   void app.register(swagger, {
     openapi: {
@@ -108,6 +111,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(businessRoutes, { prefix: '' });
   void app.register(adminRoutes, { prefix: '' });
   void app.register(leadsRoutes, { prefix: '' });
+  void app.register(commerceRoutes, { prefix: '' });
 
   app.setNotFoundHandler((_req, reply) => {
     reply.code(404).send(errorEnvelope('NOT_FOUND', 'Route not found'));

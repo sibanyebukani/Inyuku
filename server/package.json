@@ -26,6 +26,7 @@
     "@fastify/cookie": "^11",
     "@fastify/cors": "^10",
     "@fastify/helmet": "^12",
+    "@fastify/multipart": "^10.0.0",
     "@fastify/swagger": "^9",
     "@fastify/swagger-ui": "^5",
     "@opentelemetry/auto-instrumentations-node": "^0.77.0",
