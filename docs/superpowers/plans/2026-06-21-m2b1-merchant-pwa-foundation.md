@@ -20,6 +20,21 @@
 - **Repo root** is `/home/sibnaye/Development/Inyuku` (frontend lives at root; backend under `server/`). Work on branch `feature/m2b1-merchant-pwa` off `main`.
 - Seed/dev data only (EA-ADR-015 prod-PII gate).
 
+## Scope amendment (2026-06-21, post-implementation)
+
+Final whole-branch review surfaced that the **edit/archive/image** capabilities were built and
+unit-tested at the engine/store layer but have **no UI callers**, and the deferred-image retry loop
+(run a queued upload once a product row receives its `serverId`) is never closed. Founder decision:
+**descope the edit/archive/image UI wiring + the post-sync image retry loop to M2-B2.** B1 ships the
+offline **engine** + the **create/list** Products slice (with RBAC cost-split) as the convergence
+de-risking proof; the unused engine code is retained and tested.
+
+Also deferred to B2 (logged, non-blocking for B1):
+- The non-atomic `repo.put`-then-`outbox.enqueue` in the store create path (a thrown `enqueue` could
+  strand a `pending` row with no outbox op); an atomic fix needs a cross-store IDB transaction.
+- `runSync()` uses raw `postJson` rather than `authFetch`, so a mid-session 401 during background sync
+  gets no refresh-retry.
+
 ---
 
 ## File Structure
