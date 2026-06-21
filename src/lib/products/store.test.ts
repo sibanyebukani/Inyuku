@@ -30,6 +30,11 @@ describe('useProductStore', () => {
     await useProductStore.getState().update(clientId, { sellPriceCents: 150 });
     expect(useProductStore.getState().items[0].sellPriceCents).toBe(150);
     expect((await listBatch()).filter((o) => o.op === 'update')).toHaveLength(1);
+    // Persistence round-trip: reset in-memory state and reload from IndexedDB
+    useProductStore.setState({ items: [] });
+    await useProductStore.getState().load();
+    const reloaded = useProductStore.getState().items.find((i) => i.clientId === clientId);
+    expect(reloaded?.sellPriceCents).toBe(150);
   });
 
   it('archive flips status and enqueues an update op carrying the archived status', async () => {
@@ -38,6 +43,11 @@ describe('useProductStore', () => {
     expect(useProductStore.getState().items[0].status).toBe('ARCHIVED');
     const archiveOp = (await listBatch()).find((o) => o.payload.status === 'ARCHIVED');
     expect(archiveOp).toBeDefined();
+    // Persistence round-trip: reset in-memory state and reload from IndexedDB
+    useProductStore.setState({ items: [] });
+    await useProductStore.getState().load();
+    const reloaded = useProductStore.getState().items.find((i) => i.clientId === clientId);
+    expect(reloaded?.status).toBe('ARCHIVED');
   });
 
   it('load hydrates items from IndexedDB', async () => {
