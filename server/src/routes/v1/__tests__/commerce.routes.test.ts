@@ -834,4 +834,213 @@ describe('/sync convergence suite', () => {
     });
     expect(sr.json().data.stockLevel).toBe(-3); // negative allowed
   });
+
+  it('PRODUCT UPDATE via sync → APPLIED and persists change', async () => {
+    const clientId = `sync-prod-up-${Date.now()}`;
+    await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/products`,
+      headers: { cookie: `inyuku_at=${ownerToken}`, 'content-type': 'application/json' },
+      payload: { clientId, name: 'Before', sellPriceCents: 1000 },
+    });
+
+    const r = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/sync`,
+      headers: { cookie: `inyuku_at=${ownerToken}`, 'content-type': 'application/json' },
+      payload: {
+        ops: [{
+          clientId,
+          entity: 'product',
+          op: 'update',
+          occurredAt: new Date().toISOString(),
+          payload: { name: 'After', sellPriceCents: 1500 },
+        }],
+      },
+    });
+    expect(r.statusCode).toBe(200);
+    const results = r.json().data.results as { status: string; serverId?: string }[];
+    expect(results[0].status).toBe('APPLIED');
+
+    const listR = await app.inject({
+      method: 'GET',
+      url: `/v1/businesses/${bizA.id}/products`,
+      headers: authHeader(ownerToken),
+    });
+    const products = listR.json().data.products as { name: string; sellPriceCents: number }[];
+    const updated = products.find((p) => p.name === 'After');
+    expect(updated).toBeTruthy();
+    expect(updated!.sellPriceCents).toBe(1500);
+  });
+
+  it('PRODUCT UPDATE idempotent replay → APPLIED consistently', async () => {
+    const clientId = `sync-prod-up-idem-${Date.now()}`;
+    await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/products`,
+      headers: { cookie: `inyuku_at=${ownerToken}`, 'content-type': 'application/json' },
+      payload: { clientId, name: 'Idem', sellPriceCents: 1000 },
+    });
+
+    const r1 = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/sync`,
+      headers: { cookie: `inyuku_at=${ownerToken}`, 'content-type': 'application/json' },
+      payload: {
+        ops: [{
+          clientId,
+          entity: 'product',
+          op: 'update',
+          occurredAt: new Date().toISOString(),
+          payload: { name: 'Idem Updated', sellPriceCents: 2000 },
+        }],
+      },
+    });
+    // Retry with a current occurredAt: LWW wins, status is deterministic
+    const r2 = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/sync`,
+      headers: { cookie: `inyuku_at=${ownerToken}`, 'content-type': 'application/json' },
+      payload: {
+        ops: [{
+          clientId,
+          entity: 'product',
+          op: 'update',
+          occurredAt: new Date(Date.now() + 1000).toISOString(),
+          payload: { name: 'Idem Updated', sellPriceCents: 2000 },
+        }],
+      },
+    });
+    expect(r1.json().data.results[0].status).toBe('APPLIED');
+    expect(r2.json().data.results[0].status).toBe('APPLIED');
+
+    const listR = await app.inject({
+      method: 'GET',
+      url: `/v1/businesses/${bizA.id}/products`,
+      headers: authHeader(ownerToken),
+    });
+    const products = listR.json().data.products as { name: string; sellPriceCents: number }[];
+    const updated = products.find((p) => p.name === 'Idem Updated');
+    expect(updated).toBeTruthy();
+    expect(updated!.sellPriceCents).toBe(2000);
+  });
+
+  it('PRODUCT UPDATE stale occurredAt → CONFLICT, server keeps newer value', async () => {
+    const clientId = `sync-prod-lww-${Date.now()}`;
+    await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/products`,
+      headers: { cookie: `inyuku_at=${ownerToken}`, 'content-type': 'application/json' },
+      payload: { clientId, name: 'LWW Base', sellPriceCents: 1000 },
+    });
+
+    // First update — newer
+    await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/sync`,
+      headers: { cookie: `inyuku_at=${ownerToken}`, 'content-type': 'application/json' },
+      payload: {
+        ops: [{
+          clientId,
+          entity: 'product',
+          op: 'update',
+          occurredAt: new Date().toISOString(),
+          payload: { name: 'LWW Newer', sellPriceCents: 2500 },
+        }],
+      },
+    });
+
+    // Second update with older occurredAt → CONFLICT
+    const r = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/sync`,
+      headers: { cookie: `inyuku_at=${ownerToken}`, 'content-type': 'application/json' },
+      payload: {
+        ops: [{
+          clientId,
+          entity: 'product',
+          op: 'update',
+          occurredAt: new Date(Date.now() - 60000).toISOString(),
+          payload: { name: 'LWW Older', sellPriceCents: 500 },
+        }],
+      },
+    });
+    const results = r.json().data.results as { status: string }[];
+    expect(results[0].status).toBe('CONFLICT');
+
+    const listR = await app.inject({
+      method: 'GET',
+      url: `/v1/businesses/${bizA.id}/products`,
+      headers: authHeader(ownerToken),
+    });
+    const products = listR.json().data.products as { name: string; sellPriceCents: number }[];
+    const updated = products.find((p) => p.name === 'LWW Newer');
+    expect(updated).toBeTruthy();
+    expect(updated!.sellPriceCents).toBe(2500);
+  });
+
+  it('PRODUCT UPDATE costPriceCents as STAFF → REJECTED', async () => {
+    const clientId = `sync-prod-cost-${Date.now()}`;
+    await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/products`,
+      headers: { cookie: `inyuku_at=${ownerToken}`, 'content-type': 'application/json' },
+      payload: { clientId, name: 'Cost Gate', sellPriceCents: 1000 },
+    });
+
+    const r = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/sync`,
+      headers: { cookie: `inyuku_at=${staffToken}`, 'content-type': 'application/json' },
+      payload: {
+        ops: [{
+          clientId,
+          entity: 'product',
+          op: 'update',
+          occurredAt: new Date().toISOString(),
+          payload: { costPriceCents: 500 },
+        }],
+      },
+    });
+    expect(r.statusCode).toBe(200);
+    const results = r.json().data.results as { status: string; error?: string }[];
+    expect(results[0].status).toBe('REJECTED');
+  });
+
+  it('PRODUCT ARCHIVE via sync update → ARCHIVED and excluded from list', async () => {
+    const clientId = `sync-prod-arch-${Date.now()}`;
+    const cr = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/products`,
+      headers: { cookie: `inyuku_at=${ownerToken}`, 'content-type': 'application/json' },
+      payload: { clientId, name: 'To Archive', sellPriceCents: 1000 },
+    });
+    const productId = cr.json().data.product.id as string;
+
+    const r = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/sync`,
+      headers: { cookie: `inyuku_at=${ownerToken}`, 'content-type': 'application/json' },
+      payload: {
+        ops: [{
+          clientId,
+          entity: 'product',
+          op: 'update',
+          occurredAt: new Date().toISOString(),
+          payload: { status: 'ARCHIVED' },
+        }],
+      },
+    });
+    expect(r.statusCode).toBe(200);
+    const results = r.json().data.results as { status: string }[];
+    expect(results[0].status).toBe('APPLIED');
+
+    const listR = await app.inject({
+      method: 'GET',
+      url: `/v1/businesses/${bizA.id}/products`,
+      headers: authHeader(ownerToken),
+    });
+    const ids = (listR.json().data.products as { id: string }[]).map((p) => p.id);
+    expect(ids).not.toContain(productId);
+  });
 });

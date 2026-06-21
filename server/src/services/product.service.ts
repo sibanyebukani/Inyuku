@@ -17,6 +17,7 @@ export interface UpdateProductInput {
   sellPriceCents?: number;
   costPriceCents?: number;
   lowStockThreshold?: number;
+  status?: 'ACTIVE' | 'ARCHIVED';
 }
 
 /** Mask costPriceCents if caller lacks catalog:read_cost. */
@@ -86,9 +87,15 @@ export async function updateProduct(
   id: string,
   input: UpdateProductInput,
   callerPerms: Set<string>,
-): Promise<Product> {
+  incomingOccurredAt?: Date,
+): Promise<{ product: Product; conflict: boolean }> {
   const product = await prisma.product.findFirst({ where: { id, businessId } });
   if (!product) throw new ValidationError('Product not found');
+
+  // LWW: if incomingOccurredAt is older than the existing updatedAt, it's a conflict
+  if (incomingOccurredAt && incomingOccurredAt < product.updatedAt) {
+    return { product, conflict: true };
+  }
 
   if (input.costPriceCents !== undefined && !callerPerms.has('catalog:read_cost')) {
     throw new ValidationError('Insufficient permissions to update cost price');
@@ -101,8 +108,10 @@ export async function updateProduct(
     data.costPriceCents = input.costPriceCents;
   }
   if (input.lowStockThreshold !== undefined) data.lowStockThreshold = input.lowStockThreshold;
+  if (input.status !== undefined) data.status = input.status;
 
-  return prisma.product.update({ where: { id }, data });
+  const updated = await prisma.product.update({ where: { id }, data });
+  return { product: updated, conflict: false };
 }
 
 export async function archiveProduct(businessId: string, id: string): Promise<Product> {
