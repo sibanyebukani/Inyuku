@@ -11,6 +11,8 @@ export interface ProductCreateInput {
   sellPriceCents: number;
   costPriceCents?: number;
   lowStockThreshold?: number;
+  /** Opening stock is stored on the product create op; the backend appends an OPENING movement. */
+  openingStock?: number;
 }
 
 interface ProductState {
