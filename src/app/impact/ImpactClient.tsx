@@ -10,6 +10,7 @@ import {
   Download,
   Check,
 } from 'lucide-react'
+import { postJson } from '@/lib/api-client'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -788,16 +789,24 @@ const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 function ReportCTA() {
   const [email, setEmail] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!emailRe.test(email)) {
       return setError('Please enter a valid email address.')
     }
     setError(null)
-    // TODO(M1): POST { email, source: 'impact_report' } to /api/leads once the backend is live.
-    setSubmitted(true)
+    setLoading(true)
+    try {
+      await postJson('/api/leads', { source: 'impact_report', email })
+      setSubmitted(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -858,11 +867,12 @@ function ReportCTA() {
             </div>
             <button
               type="submit"
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-4 rounded-lg text-[15px] font-semibold text-white transition-all duration-250 hover:scale-[1.02] active:scale-[0.98]"
+              disabled={loading}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-4 rounded-lg text-[15px] font-semibold text-white transition-all duration-250 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-60"
               style={{ backgroundColor: '#E86A34' }}
             >
               <Download className="w-5 h-5" />
-              Download Report
+              {loading ? 'Sending…' : 'Download Report'}
             </button>
           </motion.form>
         )}

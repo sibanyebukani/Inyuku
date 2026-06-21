@@ -8,6 +8,7 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { useGSAP } from '@gsap/react'
 import { Check } from 'lucide-react'
 import { CheckmarkIcon } from '@/components/icons'
+import { postJson } from '@/lib/api-client'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -421,16 +422,42 @@ function ShareStorySection() {
 
   const [formState, setFormState] = useState({
     name: '',
+    email: '',
     businessName: '',
     businessType: '',
     story: '',
   })
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // TODO(M1): POST { ...formState, source: 'share_story' } to /api/leads once the backend is live.
-    setSubmitted(true)
+    if (!formState.name.trim()) return setError('Please enter your name.')
+    if (!emailRe.test(formState.email)) return setError('Please enter a valid email address.')
+    if (!formState.businessName.trim()) return setError('Please enter your business name.')
+    if (!formState.businessType) return setError('Please select a business type.')
+    if (!formState.story.trim()) return setError('Please share your story.')
+
+    setError(null)
+    setLoading(true)
+    try {
+      await postJson('/api/leads', {
+        source: 'share_story',
+        name: formState.name,
+        email: formState.email,
+        businessName: formState.businessName,
+        businessType: formState.businessType,
+        story: formState.story,
+      })
+      setSubmitted(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -480,6 +507,7 @@ function ShareStorySection() {
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
+                {error && <p role="alert" className="text-[14px] text-red-600">{error}</p>}
                 <div>
                   <label htmlFor="story-name" className="block text-[14px] font-medium text-text-primary mb-1.5">Your Name</label>
                   <input
@@ -488,6 +516,29 @@ function ShareStorySection() {
                     required
                     value={formState.name}
                     onChange={(e) => setFormState((s) => ({ ...s, name: e.target.value }))}
+                    className="w-full px-4 py-3.5 rounded-lg text-[15px] outline-none transition-all duration-200"
+                    style={{
+                      backgroundColor: '#F6F2EC',
+                      border: '1px solid #E7E5E4',
+                    }}
+                    onFocus={(e) => {
+                      e.currentTarget.style.borderColor = '#E86A34'
+                      e.currentTarget.style.boxShadow = '0 0 0 3px rgba(232,106,52,0.15)'
+                    }}
+                    onBlur={(e) => {
+                      e.currentTarget.style.borderColor = '#E7E5E4'
+                      e.currentTarget.style.boxShadow = 'none'
+                    }}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="story-email" className="block text-[14px] font-medium text-text-primary mb-1.5">Email</label>
+                  <input
+                    id="story-email"
+                    type="email"
+                    required
+                    value={formState.email}
+                    onChange={(e) => setFormState((s) => ({ ...s, email: e.target.value }))}
                     className="w-full px-4 py-3.5 rounded-lg text-[15px] outline-none transition-all duration-200"
                     style={{
                       backgroundColor: '#F6F2EC',
@@ -582,7 +633,8 @@ function ShareStorySection() {
                 </div>
                 <button
                   type="submit"
-                  className="w-full py-4 rounded-lg text-[15px] font-semibold text-white transition-all duration-250 hover:scale-[1.01] active:scale-[0.99] mt-2"
+                  disabled={loading}
+                  className="w-full py-4 rounded-lg text-[15px] font-semibold text-white transition-all duration-250 hover:scale-[1.01] active:scale-[0.99] mt-2 disabled:opacity-60"
                   style={{ backgroundColor: '#E86A34' }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.backgroundColor = '#D15A28'
@@ -591,7 +643,7 @@ function ShareStorySection() {
                     e.currentTarget.style.backgroundColor = '#E86A34'
                   }}
                 >
-                  Submit Your Story
+                  {loading ? 'Submitting…' : 'Submit Your Story'}
                 </button>
               </form>
             )}

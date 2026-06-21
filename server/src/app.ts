@@ -12,6 +12,8 @@ import healthRoutes from './routes/health.routes.js';
 import authRoutes from './routes/v1/auth.routes.js';
 import businessRoutes from './routes/v1/businesses.routes.js';
 import adminRoutes from './routes/v1/admin.routes.js';
+import leadsRoutes from './routes/v1/leads.routes.js';
+import * as Sentry from '@sentry/node';
 import authMiddleware from './middleware/auth.middleware.js';
 import permissionGuard from './middleware/require-permission.js';
 
@@ -105,12 +107,15 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(authRoutes, { prefix: '' });
   void app.register(businessRoutes, { prefix: '' });
   void app.register(adminRoutes, { prefix: '' });
+  void app.register(leadsRoutes, { prefix: '' });
 
   app.setNotFoundHandler((_req, reply) => {
     reply.code(404).send(errorEnvelope('NOT_FOUND', 'Route not found'));
   });
 
   app.setErrorHandler((err, _req, reply) => {
+    Sentry.captureException(err);
+
     if (err instanceof AppError) {
       reply.code(err.statusCode).send(errorEnvelope(err.code, err.message, err.details));
       return;

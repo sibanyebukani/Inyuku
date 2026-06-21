@@ -1,0 +1,25 @@
+{
+  "nav": {
+    "home": "Home",
+    "platform": "Platform",
+    "impact": "Impact",
+    "solutions": "Solutions",
+    "stories": "Stories",
+    "about": "About",
+    "login": "Log in"
+  },
+  "cta": {
+    "getStarted": "Get Started"
+  },
+  "locale": {
+    "label": "Language",
+    "en": "English",
+    "zu": "isiZulu",
+    "xh": "isiXhosa",
+    "af": "Afrikaans",
+    "st": "Sesotho",
+    "tn": "Setswana",
+    "nso": "Sepedi",
+    "ts": "Xitsonga"
+  }
+}

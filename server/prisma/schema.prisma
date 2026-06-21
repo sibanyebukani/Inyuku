@@ -75,6 +75,7 @@ model User {
   phoneOtps           PhoneOtp[]
   auditLogs           AuditLog[]
   consents            Consent[]
+  aiUsages            AiUsage[]
 
   @@map("users")
 }
@@ -248,18 +249,23 @@ model ConsentRevocation {
 }
 
 model AiUsage {
-  id        String   @id @default(cuid()) @map("id")
-  businessId String  @map("business_id")
-  feature   String   @map("feature")
-  tier      String   @map("tier")
-  model     String   @map("model")
-  tokens    Int?     @map("tokens")
-  costCents Int      @default(0) @map("cost_cents")
-  cacheHit  Boolean? @map("cache_hit")
-  latencyMs Int?     @map("latency_ms")
-  createdAt DateTime @default(now()) @map("created_at")
+  id           String   @id @default(cuid()) @map("id")
+  businessId   String   @map("business_id")
+  userId       String?  @map("user_id")
+  feature      String   @map("feature")
+  tier         String   @map("tier")
+  model        String   @map("model")
+  inputTokens  Int?     @map("input_tokens")
+  outputTokens Int?     @map("output_tokens")
+  tokens       Int?     @map("tokens")
+  costCents    Int      @default(0) @map("cost_cents")
+  cacheHit     Boolean? @map("cache_hit")
+  latencyMs    Int?     @map("latency_ms")
+  requestId    String?  @map("request_id")
+  createdAt    DateTime @default(now()) @map("created_at")
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user     User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@map("ai_usage")
 }
