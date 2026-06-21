@@ -19,4 +19,22 @@ describe('registerSyncTriggers', () => {
     await Promise.resolve();
     expect(spy).not.toHaveBeenCalled();
   });
+
+  it('runs sync on visibilitychange when document is visible', async () => {
+    const spy = vi.spyOn(sync, 'runSync').mockResolvedValue({ applied: 0, duplicate: 0, conflict: 0, rejected: 0 });
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    registerSyncTriggers('biz2');
+    document.dispatchEvent(new Event('visibilitychange'));
+    await Promise.resolve();
+    expect(spy).toHaveBeenCalledWith('biz2');
+  });
+
+  it('does not run sync on visibilitychange when document is hidden', async () => {
+    const spy = vi.spyOn(sync, 'runSync').mockResolvedValue({ applied: 0, duplicate: 0, conflict: 0, rejected: 0 });
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    registerSyncTriggers('biz3');
+    document.dispatchEvent(new Event('visibilitychange'));
+    await Promise.resolve();
+    expect(spy).not.toHaveBeenCalled();
+  });
 });
