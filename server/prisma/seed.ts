@@ -22,6 +22,19 @@ const PERMISSIONS = [
   { key: 'platform:business:suspend', description: 'Suspend a business (platform)' },
   { key: 'ai:invoke', description: 'Invoke the AI gateway' },
   { key: 'ai:usage:read', description: 'Read AI usage/cost' },
+  // M2 commerce permissions
+  { key: 'catalog:read', description: 'Read products' },
+  { key: 'catalog:write', description: 'Create/update/archive products + image' },
+  { key: 'catalog:read_cost', description: 'Owner-only — read costPriceCents / margin' },
+  { key: 'inventory:read', description: 'Read stock levels' },
+  { key: 'inventory:write', description: 'Post stock movements' },
+  { key: 'order:read', description: 'Read orders' },
+  { key: 'order:write', description: 'Create/complete/void orders, set payment state' },
+  { key: 'customer:read', description: 'Read customer directory' },
+  { key: 'customer:write', description: 'Create/update customers' },
+  { key: 'dashboard:read', description: 'Read the dashboard (non-financial)' },
+  { key: 'dashboard:read_financial', description: 'Owner-only — financial dashboard fields' },
+  { key: 'sync:write', description: 'Submit batch sync' },
 ];
 
 async function main() {
