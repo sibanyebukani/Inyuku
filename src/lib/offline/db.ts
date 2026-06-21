@@ -1,11 +1,17 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { ProductRow, OutboxOp, BaseRow } from './types';
+import type {
+  ProductRow,
+  CustomerRow,
+  OrderRow,
+  StockMovementRow,
+  OutboxOp,
+} from './types';
 
 interface InyukuDB extends DBSchema {
   products: { key: string; value: ProductRow };
-  customers: { key: string; value: BaseRow & Record<string, unknown> };
-  orders: { key: string; value: BaseRow & Record<string, unknown> };
-  stockMovements: { key: string; value: BaseRow & Record<string, unknown> };
+  customers: { key: string; value: CustomerRow };
+  orders: { key: string; value: OrderRow };
+  stockMovements: { key: string; value: StockMovementRow };
   outbox: { key: string; value: OutboxOp };
   meta: { key: string; value: unknown };
 }

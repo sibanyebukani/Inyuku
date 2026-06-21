@@ -12,7 +12,7 @@ describe('registerSyncTriggers', () => {
     const unsub = registerSyncTriggers('biz1');
     window.dispatchEvent(new Event('online'));
     await Promise.resolve();
-    expect(spy).toHaveBeenCalledWith('biz1');
+    expect(spy).toHaveBeenCalledWith('biz1', expect.any(Function));
     spy.mockClear();
     unsub();
     window.dispatchEvent(new Event('online'));
@@ -26,7 +26,7 @@ describe('registerSyncTriggers', () => {
     registerSyncTriggers('biz2');
     document.dispatchEvent(new Event('visibilitychange'));
     await Promise.resolve();
-    expect(spy).toHaveBeenCalledWith('biz2');
+    expect(spy).toHaveBeenCalledWith('biz2', expect.any(Function));
   });
 
   it('does not run sync on visibilitychange when document is hidden', async () => {

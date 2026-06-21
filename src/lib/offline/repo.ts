@@ -17,7 +17,7 @@ export function makeRepo<T extends { clientId: string }>(store: StoreName): Repo
     },
     async list() {
       const db = await openDb();
-      const v = (await db.getAll(store)) as T[];
+      const v = (await db.getAll(store)) as unknown as T[];
       db.close();
       return v;
     },
