@@ -63,6 +63,32 @@ describe('api-client', () => {
     );
   });
 
+  it('plain object body gets content-type: application/json', async () => {
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue({
+      status: 201,
+      json: async () => ({ ok: true, data: {} }),
+    });
+
+    await apiFetch('/v1/upload', { method: 'POST', body: JSON.stringify({ foo: 'bar' }) });
+    const [, calledOpts] = fetchMock.mock.calls[0] as [string, RequestInit & { headers: Record<string, string> }];
+    expect(calledOpts.headers['content-type']).toBe('application/json');
+  });
+
+  it('FormData body does NOT get content-type: application/json set by the client', async () => {
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue({
+      status: 200,
+      json: async () => ({ ok: true, data: {} }),
+    });
+
+    const fd = new FormData();
+    fd.append('file', new Blob(['img'], { type: 'image/png' }), 'photo.png');
+    await apiFetch('/v1/products/image', { method: 'POST', body: fd });
+    const [, calledOpts] = fetchMock.mock.calls[0] as [string, RequestInit & { headers: Record<string, string> }];
+    expect(calledOpts.headers['content-type']).toBeUndefined();
+  });
+
   it('getJson sets GET method', async () => {
     const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValue({

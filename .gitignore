@@ -23,3 +23,8 @@ out
 *.log
 npm-debug.log*
 tsconfig.tsbuildinfo
+
+# PWA / Serwist generated artifacts
+public/sw.js
+public/sw.js.map
+public/swe-worker-*.js
