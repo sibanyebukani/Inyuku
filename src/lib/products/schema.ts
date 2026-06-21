@@ -16,6 +16,11 @@ export const productFormSchema = z.object({
     .min(1, 'Sell price is required')
     .regex(ZAR_AMOUNT_RE, zarAmountMsg),
   costPrice: z.string().regex(ZAR_AMOUNT_RE, zarAmountMsg).optional().or(z.literal('')),
+  lowStockThreshold: z
+    .string()
+    .regex(/^\d*$/, 'Enter a whole number')
+    .optional()
+    .or(z.literal('')),
 });
 
 export type ProductFormValues = z.infer<typeof productFormSchema>;

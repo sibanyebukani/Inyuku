@@ -96,6 +96,25 @@ describe('runSync', () => {
     expect(await count()).toBe(0);
   });
 
+  it('APPLIED drains a product update op and leaves the locally-edited row synced', async () => {
+    await products.put({
+      clientId: 'pU', name: 'New', sellPriceCents: 200, status: 'ACTIVE',
+      _syncState: 'pending', updatedAtLocal: '2026-06-21T10:00:00.000Z',
+    });
+    await enqueue({
+      clientId: 'pU', entity: 'product', op: 'update',
+      occurredAt: '2026-06-21T10:00:00.000Z', payload: { name: 'New', sellPriceCents: 200 },
+    });
+    mockAuthFetchSequence([{ results: [{ clientId: 'pU', status: 'APPLIED', serverId: 'srv_u' }] }]);
+    const summary = await runSync('biz1');
+    expect(summary.applied).toBe(1);
+    const row = await products.get('pU');
+    expect(row?._syncState).toBe('synced');
+    expect(row?.serverId).toBe('srv_u');
+    expect(row?.name).toBe('New');
+    expect(await count()).toBe(0);
+  });
+
   it('DUPLICATE is treated as applied and drained', async () => {
     await seedProduct('p2');
     mockAuthFetchSequence([{ results: [{ clientId: 'p2', status: 'DUPLICATE', serverId: 'srv_2' }] }]);

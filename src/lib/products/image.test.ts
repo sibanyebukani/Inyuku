@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { uploadProductImage } from './image';
+import { uploadProductImage, retryPendingProductImages, clearPendingImageFiles } from './image';
 import { makeRepo } from '@/lib/offline/repo';
 import { openDb } from '@/lib/offline/db';
 import * as authMod from '@/lib/session/authFetch';
@@ -22,6 +22,7 @@ describe('uploadProductImage', () => {
     const db = await openDb();
     await db.clear('products');
     db.close();
+    clearPendingImageFiles();
     setOnline(true);
   });
   afterEach(() => vi.restoreAllMocks());
@@ -50,5 +51,46 @@ describe('uploadProductImage', () => {
     const row = await repo.get('p3');
     expect(row?.imageUrl).toBe('https://cdn/x.png');
     expect(row?.pendingImage).toBe(false);
+  });
+});
+
+describe('retryPendingProductImages', () => {
+  beforeEach(async () => {
+    const db = await openDb();
+    await db.clear('products');
+    db.close();
+    clearPendingImageFiles();
+    setOnline(true);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('uploads deferred images once their products gain a serverId', async () => {
+    await put({ clientId: 'p1', pendingImage: true });
+    await uploadProductImage('p1', file, 'biz1'); // defer and hold the file
+    const authSpy = vi.spyOn(authMod, 'authFetch').mockResolvedValue({ imageUrl: 'https://cdn/y.png' });
+
+    // No serverId yet — retry is a no-op.
+    let res = await retryPendingProductImages('biz1');
+    expect(res.retried).toBe(0);
+    expect(authSpy).not.toHaveBeenCalled();
+
+    await repo.put({ ...(await repo.get('p1'))!, serverId: 'srv1' });
+    res = await retryPendingProductImages('biz1');
+    expect(res.retried).toBe(1);
+    expect(authSpy).toHaveBeenCalledWith(
+      '/v1/businesses/biz1/products/srv1/image',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    const row = await repo.get('p1');
+    expect(row?.imageUrl).toBe('https://cdn/y.png');
+    expect(row?.pendingImage).toBe(false);
+  });
+
+  it('does not retry rows whose deferred file is no longer held', async () => {
+    await put({ clientId: 'p2', serverId: 'srv2', pendingImage: true });
+    const authSpy = vi.spyOn(authMod, 'authFetch').mockResolvedValue({ imageUrl: 'https://cdn/z.png' });
+    const res = await retryPendingProductImages('biz1');
+    expect(res.retried).toBe(0);
+    expect(authSpy).not.toHaveBeenCalled();
   });
 });

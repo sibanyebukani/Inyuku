@@ -1,4 +1,5 @@
 import { runSync, type SyncSummary } from './sync';
+import { retryPendingProductImages } from '@/lib/products/image';
 import type { SyncNotice } from './types';
 
 function defaultNotice(notice: SyncNotice): void {
@@ -21,6 +22,9 @@ export function registerSyncTriggers(
     try {
       const summary = await runSync(businessId, emitNotice);
       onSummary?.(summary);
+      // After a successful sync, retry any product images that were deferred
+      // until their rows gained a serverId.
+      await retryPendingProductImages(businessId);
     } catch {
       // network/refresh failures are non-fatal; the outbox is retried on the next trigger
     } finally {
