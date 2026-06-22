@@ -1,6 +1,6 @@
 import { create as createStore } from 'zustand';
 import { makeRepo } from '@/lib/offline/repo';
-import { enqueue } from '@/lib/offline/outbox';
+import { atomicPutAndEnqueue } from '@/lib/offline/mutate';
 import { newClientId } from '@/lib/offline/ids';
 import type { ProductRow } from '@/lib/offline/types';
 
@@ -11,6 +11,8 @@ export interface ProductCreateInput {
   sellPriceCents: number;
   costPriceCents?: number;
   lowStockThreshold?: number;
+  /** Opening stock is stored on the product create op; the backend appends an OPENING movement. */
+  openingStock?: number;
 }
 
 interface ProductState {
@@ -45,8 +47,11 @@ export const useProductStore = createStore<ProductState>((set) => ({
       _syncState: 'pending',
       updatedAtLocal: occurredAt,
     };
-    await repo.put(row);
-    await enqueue({ clientId, entity: 'product', op: 'create', occurredAt, payload: { ...input } });
+    await atomicPutAndEnqueue({
+      store: 'products',
+      row,
+      op: { clientId, entity: 'product', op: 'create', occurredAt, payload: { ...input } },
+    });
     set({ items: await repo.list() });
     return clientId;
   },
@@ -55,8 +60,12 @@ export const useProductStore = createStore<ProductState>((set) => ({
     const existing = await repo.get(clientId);
     if (!existing) return;
     const occurredAt = nowIso();
-    await repo.put({ ...existing, ...patch, _syncState: 'pending', updatedAtLocal: occurredAt });
-    await enqueue({ clientId, entity: 'product', op: 'update', occurredAt, payload: { ...patch } });
+    const row: ProductRow = { ...existing, ...patch, _syncState: 'pending', updatedAtLocal: occurredAt };
+    await atomicPutAndEnqueue({
+      store: 'products',
+      row,
+      op: { clientId, entity: 'product', op: 'update', occurredAt, payload: { ...patch } },
+    });
     set({ items: await repo.list() });
   },
 
@@ -64,8 +73,17 @@ export const useProductStore = createStore<ProductState>((set) => ({
     const existing = await repo.get(clientId);
     if (!existing) return;
     const occurredAt = nowIso();
-    await repo.put({ ...existing, status: 'ARCHIVED', _syncState: 'pending', updatedAtLocal: occurredAt });
-    await enqueue({ clientId, entity: 'product', op: 'update', occurredAt, payload: { status: 'ARCHIVED' } });
+    const row: ProductRow = {
+      ...existing,
+      status: 'ARCHIVED',
+      _syncState: 'pending',
+      updatedAtLocal: occurredAt,
+    };
+    await atomicPutAndEnqueue({
+      store: 'products',
+      row,
+      op: { clientId, entity: 'product', op: 'update', occurredAt, payload: { status: 'ARCHIVED' } },
+    });
     set({ items: await repo.list() });
   },
 }));

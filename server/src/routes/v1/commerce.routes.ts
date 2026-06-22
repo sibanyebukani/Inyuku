@@ -181,7 +181,7 @@ export default async function commerceRoutes(app: FastifyInstance) {
       if (body.costPriceCents !== undefined && !perms.has('catalog:read_cost')) {
         throw new ForbiddenError('catalog:read_cost required to update cost price');
       }
-      const product = await updateProduct(businessId, id, body, perms);
+      const { product } = await updateProduct(businessId, id, body, perms);
       await auditLog({
         ...buildAuditContext(req),
         userId: req.user!.sub,

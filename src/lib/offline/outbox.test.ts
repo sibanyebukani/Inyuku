@@ -29,9 +29,16 @@ describe('outbox', () => {
     expect(await count()).toBe(105);
   });
 
-  it('removes an op by clientId', async () => {
-    await enqueue(op('a', '2026-06-21T01:00:00.000Z'));
-    await remove('a');
+  it('removes an op by its seq key', async () => {
+    const seq = await enqueue(op('a', '2026-06-21T01:00:00.000Z'));
+    await remove(seq);
     expect(await count()).toBe(0);
+  });
+
+  it('keeps multiple ops for the same clientId until each seq is removed', async () => {
+    const seq1 = await enqueue(op('a', '2026-06-21T01:00:00.000Z'));
+    await enqueue(op('a', '2026-06-21T01:00:01.000Z'));
+    await remove(seq1);
+    expect(await count()).toBe(1);
   });
 });

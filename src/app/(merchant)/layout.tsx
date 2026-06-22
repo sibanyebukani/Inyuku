@@ -1,10 +1,36 @@
 'use client';
 
 import { useCallback, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
 import { SessionProvider, useSession } from '@/lib/session/SessionProvider';
 import { registerSyncTriggers } from '@/lib/offline/triggers';
 import { useOnline } from '@/lib/offline/useOnline';
+
+const navItems = [
+  { href: '/dashboard', label: 'Dashboard' },
+  { href: '/products', label: 'Products' },
+  { href: '/orders', label: 'Orders' },
+  { href: '/customers', label: 'Customers' },
+  { href: '/inventory', label: 'Inventory' },
+  { href: '/onboarding', label: 'Onboarding' },
+];
+
+function NavLink({ href, label }: { href: string; label: string }) {
+  const pathname = usePathname();
+  const active = pathname === href || pathname.startsWith(`${href}/`);
+  return (
+    <Link
+      href={href}
+      className={`block rounded px-3 py-2 text-sm font-medium ${
+        active ? 'bg-emerald-100 text-emerald-800' : 'text-gray-700 hover:bg-gray-100'
+      }`}
+      aria-current={active ? 'page' : undefined}
+    >
+      {label}
+    </Link>
+  );
+}
 
 function MerchantShell({ children }: { children: React.ReactNode }) {
   const { activeBusinessId } = useSession();
@@ -20,6 +46,15 @@ function MerchantShell({ children }: { children: React.ReactNode }) {
       <div className={`mb-4 rounded px-3 py-1 text-sm ${online ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}>
         {online ? 'Online' : 'Offline — changes will sync when you reconnect'}
       </div>
+      <nav aria-label="Merchant" className="mb-6">
+        <ul className="flex flex-wrap gap-1">
+          {navItems.map((item) => (
+            <li key={item.href}>
+              <NavLink href={item.href} label={item.label} />
+            </li>
+          ))}
+        </ul>
+      </nav>
       {children}
     </div>
   );
