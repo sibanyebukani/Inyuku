@@ -228,4 +228,104 @@ describe('runSync', () => {
     expect(spy.mock.calls[1][0]).toBe('/v1/auth/refresh');
     expect((await products.get('p401'))?.serverId).toBe('srv_401');
   });
+
+  it('converges offline product create → update (both ops acked)', async () => {
+    // The local row already reflects the optimistic edit made while offline.
+    await products.put({
+      clientId: 'pCU', name: 'Rice', sellPriceCents: 150, status: 'ACTIVE',
+      _syncState: 'pending', updatedAtLocal: '2026-06-21T10:00:01.000Z',
+    });
+    await enqueue({
+      clientId: 'pCU', entity: 'product', op: 'create',
+      occurredAt: '2026-06-21T10:00:00.000Z', payload: { name: 'Rice', sellPriceCents: 100 },
+    });
+    await enqueue({
+      clientId: 'pCU', entity: 'product', op: 'update',
+      occurredAt: '2026-06-21T10:00:01.000Z', payload: { sellPriceCents: 150 },
+    });
+
+    mockAuthFetchSequence([
+      {
+        results: [
+          { clientId: 'pCU', status: 'APPLIED', serverId: 'srv_pCU' },
+          { clientId: 'pCU', status: 'APPLIED' },
+        ],
+      },
+    ]);
+
+    const summary = await runSync('biz1');
+    expect(summary).toEqual({ applied: 2, duplicate: 0, conflict: 0, rejected: 0 });
+    expect(await count()).toBe(0);
+    const row = await products.get('pCU');
+    expect(row?._syncState).toBe('synced');
+    expect(row?.serverId).toBe('srv_pCU');
+    expect(row?.sellPriceCents).toBe(150);
+  });
+
+  it('converges offline product create → archive (both ops acked)', async () => {
+    // The local row already reflects the optimistic archive made while offline.
+    await products.put({
+      clientId: 'pCA', name: 'Soap', sellPriceCents: 999, status: 'ARCHIVED',
+      _syncState: 'pending', updatedAtLocal: '2026-06-21T10:00:01.000Z',
+    });
+    await enqueue({
+      clientId: 'pCA', entity: 'product', op: 'create',
+      occurredAt: '2026-06-21T10:00:00.000Z', payload: { name: 'Soap', sellPriceCents: 999 },
+    });
+    await enqueue({
+      clientId: 'pCA', entity: 'product', op: 'update',
+      occurredAt: '2026-06-21T10:00:01.000Z', payload: { status: 'ARCHIVED' },
+    });
+
+    mockAuthFetchSequence([
+      {
+        results: [
+          { clientId: 'pCA', status: 'APPLIED', serverId: 'srv_pCA' },
+          { clientId: 'pCA', status: 'APPLIED' },
+        ],
+      },
+    ]);
+
+    const summary = await runSync('biz1');
+    expect(summary).toEqual({ applied: 2, duplicate: 0, conflict: 0, rejected: 0 });
+    expect(await count()).toBe(0);
+    const row = await products.get('pCA');
+    expect(row?._syncState).toBe('synced');
+    expect(row?.serverId).toBe('srv_pCA');
+    expect(row?.status).toBe('ARCHIVED');
+  });
+
+  it('converges offline customer create → edit (both ops acked)', async () => {
+    // The local row already reflects the optimistic edit made while offline.
+    await customers.put({
+      clientId: 'cCE', name: 'Nomsa M', phone: '+27821234567', email: 'nomsa@example.com',
+      _syncState: 'pending', updatedAtLocal: '2026-06-21T10:00:01.000Z',
+    });
+    await enqueue({
+      clientId: 'cCE', entity: 'customer', op: 'create',
+      occurredAt: '2026-06-21T10:00:00.000Z', payload: { name: 'Nomsa', phone: '+27821234567' },
+    });
+    await enqueue({
+      clientId: 'cCE', entity: 'customer', op: 'update',
+      occurredAt: '2026-06-21T10:00:01.000Z', payload: { name: 'Nomsa M', email: 'nomsa@example.com' },
+    });
+
+    mockAuthFetchSequence([
+      {
+        results: [
+          { clientId: 'cCE', status: 'APPLIED', serverId: 'srv_cCE' },
+          { clientId: 'cCE', status: 'APPLIED' },
+        ],
+      },
+    ]);
+
+    const summary = await runSync('biz1');
+    expect(summary).toEqual({ applied: 2, duplicate: 0, conflict: 0, rejected: 0 });
+    expect(await count()).toBe(0);
+    const row = await customers.get('cCE');
+    expect(row?._syncState).toBe('synced');
+    expect(row?.serverId).toBe('srv_cCE');
+    expect(row?.name).toBe('Nomsa M');
+    expect(row?.email).toBe('nomsa@example.com');
+  });
 });

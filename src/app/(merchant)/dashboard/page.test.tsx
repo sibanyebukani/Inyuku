@@ -2,7 +2,8 @@
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
-import DashboardPage, { type DashboardSnapshot } from './page';
+import DashboardPage from './page';
+import type { DashboardSnapshot } from './types';
 import * as sessionMod from '@/lib/session/SessionProvider';
 import * as authMod from '@/lib/session/authFetch';
 import { openDb } from '@/lib/offline/db';

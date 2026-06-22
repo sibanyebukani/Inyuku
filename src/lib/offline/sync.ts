@@ -8,6 +8,7 @@ import type {
   StockMovementRow,
   EntityName,
   SyncNotice,
+  OutboxOp,
 } from './types';
 
 export interface SyncOpResult {
@@ -59,7 +60,7 @@ async function reconcile(
     const row = await products.get(clientId);
     if (!row) return;
     if (result.status === 'APPLIED' || result.status === 'DUPLICATE') {
-      await products.put({ ...row, serverId: result.serverId, _syncState: 'synced' });
+      await products.put({ ...row, serverId: result.serverId ?? row.serverId, _syncState: 'synced' });
     } else if (result.status === 'CONFLICT') {
       await handleConflict(businessId, 'product', row, result, onNotice, products, now);
     } else {
@@ -72,7 +73,7 @@ async function reconcile(
     const row = await customers.get(clientId);
     if (!row) return;
     if (result.status === 'APPLIED' || result.status === 'DUPLICATE') {
-      await customers.put({ ...row, serverId: result.serverId, _syncState: 'synced' });
+      await customers.put({ ...row, serverId: result.serverId ?? row.serverId, _syncState: 'synced' });
     } else if (result.status === 'CONFLICT') {
       await handleConflict(businessId, 'customer', row, result, onNotice, customers, now);
     } else {
@@ -85,7 +86,7 @@ async function reconcile(
     const row = await orders.get(clientId);
     if (!row) return;
     if (result.status === 'APPLIED' || result.status === 'DUPLICATE') {
-      await orders.put({ ...row, serverId: result.serverId, _syncState: 'synced' });
+      await orders.put({ ...row, serverId: result.serverId ?? row.serverId, _syncState: 'synced' });
     } else if (result.status === 'CONFLICT') {
       await handleConflict(businessId, 'order', row, result, onNotice, orders, now);
     } else {
@@ -98,7 +99,7 @@ async function reconcile(
     const row = await stockMovements.get(clientId);
     if (!row) return;
     if (result.status === 'APPLIED' || result.status === 'DUPLICATE') {
-      await stockMovements.put({ ...row, serverId: result.serverId, _syncState: 'synced' });
+      await stockMovements.put({ ...row, serverId: result.serverId ?? row.serverId, _syncState: 'synced' });
     } else if (result.status === 'CONFLICT') {
       await handleConflict(businessId, 'stock_movement', row, result, onNotice, stockMovements, now);
     } else {
@@ -157,13 +158,12 @@ export async function runSync(
     { method: 'POST', body: JSON.stringify({ ops }) },
   );
 
-  const byEntity = new Map(ops.map((o) => [o.clientId, o.entity] as [string, EntityName]));
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    const op = ops[i] as OutboxOp | undefined;
+    if (!op) continue;
 
-  for (const r of results) {
-    const entity = byEntity.get(r.clientId);
-    if (entity) {
-      await reconcile(businessId, entity, r.clientId, r, onNotice);
-    }
+    await reconcile(businessId, op.entity, op.clientId, r, onNotice);
 
     if (r.status === 'REJECTED') {
       summary.rejected += 1; // keep the op for retry
@@ -171,7 +171,9 @@ export async function runSync(
       if (r.status === 'APPLIED') summary.applied += 1;
       else if (r.status === 'DUPLICATE') summary.duplicate += 1;
       else summary.conflict += 1;
-      await remove(r.clientId);
+      if (op.seq !== undefined) {
+        await remove(op.seq);
+      }
     }
   }
 

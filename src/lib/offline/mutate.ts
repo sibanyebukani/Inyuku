@@ -16,26 +16,30 @@ export async function atomicPutAndEnqueue<T extends BaseRow>(
   input: AtomicPutInput<T>,
 ): Promise<void> {
   const db = await openDb();
-  const tx = db.transaction([input.store, 'outbox'], 'readwrite');
   try {
-    await tx.objectStore(input.store).put(input.row as never);
-    await tx.objectStore('outbox').put(input.op);
-    await tx.done;
-  } catch (err) {
-    // Spec-compliant IndexedDB aborts automatically on request error.
-    // fake-indexeddb does not, so we explicitly abort to keep tests honest.
-    // In real implementations tx.abort() is a no-op because the transaction
-    // is already done; the nested catches prevent unhandled rejections.
+    const tx = db.transaction([input.store, 'outbox'], 'readwrite');
     try {
-      tx.abort();
-    } catch {
-      /* already aborted */
-    }
-    try {
+      await tx.objectStore(input.store).put(input.row as never);
+      await tx.objectStore('outbox').add(input.op);
       await tx.done;
-    } catch {
-      /* consume abort/rejection so it is not unhandled */
+    } catch (err) {
+      // Spec-compliant IndexedDB aborts automatically on request error.
+      // fake-indexeddb does not, so we explicitly abort to keep tests honest.
+      // In real implementations tx.abort() is a no-op because the transaction
+      // is already done; the nested catches prevent unhandled rejections.
+      try {
+        tx.abort();
+      } catch {
+        /* already aborted */
+      }
+      try {
+        await tx.done;
+      } catch {
+        /* consume abort/rejection so it is not unhandled */
+      }
+      throw err;
     }
-    throw err;
+  } finally {
+    db.close();
   }
 }

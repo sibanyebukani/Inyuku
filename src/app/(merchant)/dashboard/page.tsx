@@ -6,14 +6,7 @@ import { useOnline } from '@/lib/offline/useOnline';
 import { authFetch } from '@/lib/session/authFetch';
 import { centsToZAR } from '@/lib/offline/money';
 import { openDb } from '@/lib/offline/db';
-
-export interface DashboardSnapshot {
-  ordersTodayCount: number;
-  productCount: number;
-  lowStockCount: number;
-  revenueTodayCents?: number;
-  fetchedAt: string;
-}
+import type { DashboardSnapshot } from './types';
 
 function cacheKey(businessId: string): string {
   return `dashboard:${businessId}`;

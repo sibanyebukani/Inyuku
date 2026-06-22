@@ -25,11 +25,14 @@ describe('useProductStore', () => {
     expect(ops[0].payload).not.toHaveProperty('_syncState');
   });
 
-  it('update merges fields and enqueues an update op', async () => {
+  it('update merges fields and appends an update op while keeping the create op', async () => {
     const clientId = await useProductStore.getState().create({ name: 'Rice', sellPriceCents: 100 });
     await useProductStore.getState().update(clientId, { sellPriceCents: 150 });
     expect(useProductStore.getState().items[0].sellPriceCents).toBe(150);
-    expect((await listBatch()).filter((o) => o.op === 'update')).toHaveLength(1);
+    const ops = await listBatch();
+    expect(ops).toHaveLength(2);
+    expect(ops.filter((o) => o.op === 'create')).toHaveLength(1);
+    expect(ops.filter((o) => o.op === 'update')).toHaveLength(1);
     // Persistence round-trip: reset in-memory state and reload from IndexedDB
     useProductStore.setState({ items: [] });
     await useProductStore.getState().load();
@@ -37,11 +40,14 @@ describe('useProductStore', () => {
     expect(reloaded?.sellPriceCents).toBe(150);
   });
 
-  it('archive flips status and enqueues an update op carrying the archived status', async () => {
+  it('archive flips status and appends an update op carrying the archived status', async () => {
     const clientId = await useProductStore.getState().create({ name: 'Soap', sellPriceCents: 999 });
     await useProductStore.getState().archive(clientId);
     expect(useProductStore.getState().items[0].status).toBe('ARCHIVED');
-    const archiveOp = (await listBatch()).find((o) => o.payload.status === 'ARCHIVED');
+    const ops = await listBatch();
+    expect(ops).toHaveLength(2);
+    expect(ops.filter((o) => o.op === 'create')).toHaveLength(1);
+    const archiveOp = ops.find((o) => o.payload.status === 'ARCHIVED');
     expect(archiveOp).toBeDefined();
     // Persistence round-trip: reset in-memory state and reload from IndexedDB
     useProductStore.setState({ items: [] });

@@ -58,6 +58,8 @@ export interface StockMovementRow extends BaseRow {
 }
 
 export interface OutboxOp {
+  /** Auto-incremented by the outbox object store; undefined until persisted. */
+  seq?: number;
   clientId: string;
   entity: EntityName;
   op: 'create' | 'update' | 'delete';
