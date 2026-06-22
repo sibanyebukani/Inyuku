@@ -1,6 +1,6 @@
 # Inyuku Digital — Project Intelligence (CLAUDE.md)
 
-> **Last synced:** 2026-06-21 (Documentation Lead, post-M2-design-freeze; M0+M1 merged).
+> **Last synced:** 2026-06-22 (Documentation Lead, post-M2 merge; M0+M1+M2 merged).
 > This file reflects the **resolved** architecture. The roadmap's original "Clerk + Supabase" stack
 > **no longer applies** — see `docs/DECISIONS.md` and EA-ADR-014/015/016.
 > **Backend framework is Fastify 5 (TypeScript)** — EA-ADR-014 was **amended (2026-06-19)** and **EA-ADR-016**
@@ -17,11 +17,15 @@ digital payments (escrow), inventory & orders, a merchant dashboard, and an AI b
 
 - **Program shape:** full platform, re-sequenced realistically (~9–14 months), small team (3–6), greenfield.
 - **Operating environment:** mobile-first, load-shedding, expensive/intermittent data → offline-first PWA, i18n.
-- **Status:** **M0 + M1 merged.** M1 platform-foundation contracts frozen (bukani-architect, 2026-06-19) →
+- **Status:** **M0 + M1 + M2 merged.** M1 platform-foundation contracts frozen (bukani-architect, 2026-06-19) →
   `docs/API.md` + `docs/SCHEMA.md`; EA-ADR-014/015 **SIGNED**; M1-B auth/tenancy STRIDE gate **PASS**.
-  **M2 (Commerce Core) is IN PROGRESS — in design**: product brief (bukani-product) + frozen architect
-  contracts (bukani-architect) persisted 2026-06-21. M3 (WhatsApp) / M4 (payments) / M5 (AI) ahead;
-  lending deferred. See `docs/ROADMAP.md`.
+  **M2 (Commerce Core) COMPLETE (merged 2026-06-22)**: backend (M2-A, PR #6), merchant PWA + offline
+  engine (M2-B1, PR #7), and the commerce frontend (M2-B2, PR #8 — orders, customers, inventory,
+  dashboard, onboarding) all merged. Offline-first sync is append-only-outbox convergent (C1 fix).
+  **M2 GA gates remain OPEN (external):** customer-directory consent ruling, PostHog sub-processor DPA
+  (analytics still ships dark), bukani-security review of sync/RBAC, CPA commerce-surface review.
+  **M3 (WhatsApp) is NEXT — not yet designed**; M4 (payments) / M5 (AI) ahead; lending deferred.
+  See `docs/ROADMAP.md`.
 
 ## 2. Resolved stack (Option A — full portfolio reference-architecture snap)
 
