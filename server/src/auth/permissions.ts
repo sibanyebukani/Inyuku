@@ -27,6 +27,10 @@ export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'dashboard:read',
     'dashboard:read_financial',
     'sync:write',
+    // M3-A WhatsApp BSP plumbing
+    'whatsapp:read',
+    'whatsapp:send',
+    'whatsapp:manage_channel',
   ],
   MERCHANT_STAFF: [
     'business:read',
@@ -45,6 +49,9 @@ export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'customer:write',
     'dashboard:read',
     'sync:write',
+    // M3-A WhatsApp BSP plumbing (owner configures; staff operates)
+    'whatsapp:read',
+    'whatsapp:send',
   ],
   ADMIN: [
     'platform:business:read',
@@ -63,6 +70,8 @@ export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'order:read',
     'customer:read',
     'dashboard:read',
+    // M3-A WhatsApp BSP plumbing (read-only; no AI on the WhatsApp surface)
+    'whatsapp:read',
   ],
 };
 
