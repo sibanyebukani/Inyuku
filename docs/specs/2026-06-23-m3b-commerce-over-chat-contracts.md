@@ -1,6 +1,6 @@
 # Inyuku Digital — M3-B (Commerce-over-Chat) Architect Contracts
 
-> **Author:** bukani-architect · **Date:** 2026-06-23 · **Status:** **DRAFT — pending bukani-security STRIDE before FREEZE.**
+> **Author:** bukani-architect · **Date:** 2026-06-23 · **Status:** **FROZEN (bukani-security APPROVED-WITH-CONDITIONS, conditions 1–9 baked, R1 documented) — 2026-06-23.**
 > **Persisted by:** bukani-docs (post-STRIDE, post-freeze; the M2/M3-A pattern — architect freezes here, docs
 > bundles one PR into `docs/API.md`, `docs/SCHEMA.md`, `docs/DECISIONS.md`, `docs/POPIA.md`,
 > `docs/THREAT-MODEL.md`, `docs/ROADMAP.md`). These contracts implement the M3-B product brief
@@ -14,8 +14,13 @@
 > **References:** EA-ADR-014/015/016, ADR-005/006/007, ADR-INY-011 (Setting AES-256-GCM),
 > ADR-INY-013/014/015/016 (M2 commerce / stock-as-movements / clientId sync), ADR-INY-017..020 (M3-A).
 > **New ADRs (this doc):** ADR-INY-021 / 022 / 023 / 024 (see §11; next free number confirmed — M3-A ended at 020).
-> **Security gate:** `docs/THREAT-MODEL.md` (new M3-B entry) — **NOT YET RUN**; the surfaces to gate on are
-> enumerated in §12. **Freeze is blocked on a bukani-security PASS** (the M2/M3-A gating pattern).
+> **Security gate:** `docs/THREAT-MODEL.md` (new M3-B entry) — **RUN; verdict APPROVED-WITH-CONDITIONS (2026-06-23).**
+> The 9 conditions are baked into §§2/3/4/5/6/7/8 below and consolidated in the new
+> **"Security gate (bukani-security STRIDE §8) — baked conditions"** section (just before §12); the surfaces
+> gated on are in §12. **Residual R1** (per-customer revocation not
+> functionally met in M3-B — GA blocker) is consciously accepted in §6.1a + the security-gate section.
+> Escalations **E1–E4** (cost ceiling, responsible-party ruling, 360dialog DPA, retention) are recorded in the
+> security-gate section — founder/compliance gates, NOT solved here.
 
 ---
 
@@ -93,8 +98,14 @@ model Conversation {
   conversation is ever hard-removed, the **order (record of trade) must survive** with the link cleared. The
   order is the durable financial record; the conversation is the (purgeable, retention-bound — M3-A §6) chat
   context. Never cascade-delete an order from a conversation deletion.
-- **`businessId` scoping:** the capture path MUST verify `Conversation.businessId === Order.businessId ===`
-  the route-resolved `businessId` before writing the link (cross-tenant link is the §12 isolation surface).
+- **`businessId` scoping (SECURITY Condition 1 — closes findings #1 & #3):** **EVERY** order-capture handler
+  — both online `POST /orders` **and** the offline `sync` order-create op — MUST, **before** writing
+  `Order.conversationId` **or** `Order.customerId`: (a) load the `Conversation` and reject **403/404** unless
+  `conversation.businessId === route businessId`; (b) load the `Customer` (when `customerId` is supplied) and
+  reject unless `customer.businessId === route businessId`. The link is written only when
+  `Conversation.businessId === Customer.businessId === Order.businessId ===` the route-resolved `businessId`.
+  **Never write a cross-tenant link** (cross-tenant link is the §12 isolation surface). The M2 `createOrder`
+  gap (finding #3 — `customerId` written with no tenant check) is closed here, not deferred.
 - **`@@index([conversationId])`** — supports "show this conversation's captured orders" (S3/AC4) and the
   inbox "Order #N captured" badge without a table scan.
 
@@ -144,6 +155,10 @@ model WhatsAppAutoReplyRule {
   with the M2 dashboard day boundary (brief §10, S5/AC3). No UTC drift.
 - **Loop/cooldown state is NOT stored on the rule** — see §6.3 (loop prevention reads from the existing
   `Message` ledger; the rule carries only the `cooldownMinutes` policy, not per-conversation fire timestamps).
+  **(SECURITY Condition 7):** the evaluator that consumes this `cooldownMinutes` MUST fire ONLY when the
+  just-persisted `Message` has `direction = INBOUND` AND `type ∈ {TEXT, INTERACTIVE}` — never OUTBOUND, never
+  status callbacks, never echoes — and MUST derive the once-per-period throttle from the prior **OUTBOUND
+  auto-reply of the same `trigger`** on that conversation in the ledger (full wiring §6.3).
 
 ### 2.3 New enums
 
@@ -176,8 +191,13 @@ M3-B reuses existing tuples; adds two for the new config table and the auto-repl
 | `whatsapp_autoreply_rule` | `CREATE`, `UPDATE`, `DELETE` (NEW) | owner config CRUD |
 | `whatsapp_autoreply` | `FIRE`, `SUPPRESSED` (NEW) | an auto-reply fired (or was suppressed by window/consent/cooldown/loop-guard) — masked, auditable for §12 |
 
-All carry **masked metadata only** (no raw `body`, no raw msisdn). `(whatsapp_autoreply, SUPPRESSED)` is the
-audit hook the STRIDE pass uses to prove loop/consent suppression is observable.
+All carry **masked metadata only** (no raw `body`, no raw msisdn) — **SECURITY Condition 3**: the
+`(customer, CREATE)` and `(order, CREATE)` audit `changes` on the capture path, plus every capture/auto-reply
+log line, MUST be pii-masked (raw `waContactId`/phone/`Message.body` NEVER logged). **SECURITY Condition 6**:
+the auto-reply evaluator MUST emit `(whatsapp_autoreply, FIRE)` on **every** fire AND
+`(whatsapp_autoreply, SUPPRESSED)` on **every** suppression (window/consent/cooldown/loop-guard) — both masked.
+`(whatsapp_autoreply, SUPPRESSED)` is the audit hook the STRIDE pass uses to prove loop/consent suppression is
+observable.
 
 ---
 
@@ -226,6 +246,8 @@ request body extended by two optional, M3-B-only fields:
 ```
 
 - `channel` and `conversationId` are **additive optional** — the M2 IN_PERSON path is unchanged when omitted.
+  **(SECURITY Condition 1):** when `conversationId` and/or `customerId` are present, the handler MUST tenant-validate
+  BOTH (load each, reject 403/404 unless `.businessId === route businessId`) BEFORE any write — see §2.1 / §5.1.
 - **Customer link/create (S3/AC2):** if `customerId` is omitted **and** `conversationId` is supplied, the
   order service resolves/creates the M2 `Customer` from the conversation's `waContactId` (see §5.2), links it
   to the order **and** back-links `Conversation.customerId` if currently null. **`Customer.consentId` is left
@@ -248,6 +270,14 @@ including `channel:"WHATSAPP"` and `conversationId`:
   "payload": { "channel":"WHATSAPP", "conversationId":"conv_…", "lines":[…], "paymentState":"UNPAID", "status":"COMPLETED" } }
 ```
 
+- **(SECURITY Condition 8 — validate the offline sync order payload, closes finding #4):** the `sync`
+  order-create op MUST validate its `payload` with the **SAME typed Zod schema as the online `POST /orders`
+  body** (including the new optional `channel` + `conversationId`) **before** it reaches `createOrder`. The
+  current `z.record(z.unknown())` passthrough on the sync `payload` is **forbidden for the order op** — no
+  unvalidated field (`channel`, `conversationId`, or any other) may reach the service. Per-op partial-success
+  is preserved: a payload that fails schema validation returns that op's status as a validation failure
+  WITHOUT failing the batch (the existing sync per-op status contract). Tenant validation (Condition 1) runs
+  on the validated `conversationId`/`customerId` exactly as the online path.
 - **Convergence (S3/AC6):** `@@unique([businessId, clientId])` on `Order` + the existing LWW-on-`occurredAt`
   sync resolution (ADR-INY-016) means a capture submitted online and then re-submitted on reconnect resolves
   to `status: DUPLICATE` — **exactly once, never duplicated.** Stock movements inherit idempotency via their
@@ -281,12 +311,16 @@ or `409`/`422`/`403`). Server composition rules (S4/AC2, ADR-INY-023):
 - **Out-of-stock** (computed `SUM(qtyDelta) <= 0`): **included but flagged** `"(out of stock)"` — Nomsa often
   sells on back-order/cash, and excluding silently hides items she may still take an order for; the merchant
   may pass an explicit `productIds` subset to curate. (Architect call — see ADR-INY-023.)
-- **`costPriceCents` is NEVER included** — customer-facing; also satisfies the RBAC split (Sipho's share is
-  the identical sell-only view; the route never reads cost).
+- **`costPriceCents` is NEVER included (SECURITY Condition 2):** the `share-catalog` route MUST NOT **read**
+  `costPriceCents` at all — it is a sell-price-only query (no margin/financial fields fetched, not merely
+  omitted from output). The composed message is customer-facing; the RBAC split is satisfied by Sipho's share
+  being the **identical sell-only view** with cost fields absent **by omission, never zeroed**.
 - **ZAR cents → display:** the server formats cents to `R{rands}.{cc}` in the composed text (the wire/UI stays
   cents; only the human-facing WhatsApp string is formatted).
-- **Send rules (S4/AC3):** obeys the M3-A window/template gates and the §6 consent branch via the same send
-  service. Offline (S4/AC4): client queues like S2.
+- **Send rules (S4/AC3) — SECURITY Condition 4 (single send choke-point):** the composed catalog message
+  MUST be dispatched **through `sendWhatsAppMessage()`** (→ `assertConsentGranted` + window-selection +
+  `WhatsAppChannel.enabled` gate) — the `share-catalog` route composes text then calls the one send function;
+  it MUST NOT construct/dispatch any outbound that bypasses it. Offline (S4/AC4): client queues like S2.
 
 > **Why a thin server route, not a client-built message:** keeps cost/RBAC and price-formatting **server-side**
 > (no client price logic, no `costPriceCents` near the client), and keeps the *single* outbound send path
@@ -352,9 +386,14 @@ interface CreateOrderInput {
 }
 ```
 
-- Before writing `conversationId`, the service **MUST** load the conversation and assert
-  `conversation.businessId === input.businessId` (tenant isolation — §12). Mismatch → `ValidationError` /
-  403; **never** write a cross-tenant link.
+- **(SECURITY Condition 1 — tenant isolation, closes findings #1 & #3):** before writing `conversationId`,
+  the service **MUST** load the `Conversation` and reject **403/404** unless
+  `conversation.businessId === input.businessId`; **and** before writing `customerId` (whether supplied by the
+  caller or resolved per §5.2), the service **MUST** load the `Customer` and reject unless
+  `customer.businessId === input.businessId`. This closes the pre-existing M2 gap (finding #3) where
+  `createOrder` wrote `customerId: input.customerId ?? null` with **no** tenant check. Mismatch on either →
+  reject; **never** write a cross-tenant `conversationId` or `customerId` link. This check is identical on the
+  online and `sync` paths (§4.1).
 - Idempotency unchanged: existing `findUnique({ businessId_clientId })` short-circuit returns the prior order
   (`duplicate: true`) — so a re-played WhatsApp capture is a no-op (S3/AC6).
 
@@ -364,10 +403,12 @@ When `customerId` is omitted and `conversationId` is supplied, inside the same t
 1. If `Conversation.customerId` is already set → reuse it.
 2. Else find an existing `Customer` for this tenant whose `phone` normalises to the conversation's
    `waContactId` (E.164-normalised compare). If found → link.
-3. Else **create** a `Customer`: `name` defaults to a placeholder (e.g. `"WhatsApp +27•••••1234"` masked
-   form for display; the architect sets the default — merchant can rename later), `phone = waContactId`
-   (normalised), **`consentId = null`** (ruling OPEN). Carry a deterministic `clientId`
-   (e.g. `wa:<conversationId>`) so offline re-capture converges to the same customer.
+3. Else **create** a `Customer` (tenant-scoped to `input.businessId`): `name` defaults to a placeholder
+   (e.g. `"WhatsApp +27•••••1234"` masked form for display; the architect sets the default — merchant can
+   rename later), `phone = waContactId` (normalised), **`consentId = null`** (ruling OPEN). Carry a
+   deterministic `clientId` (e.g. `wa:<conversationId>`) so offline re-capture converges to the same customer.
+   **(SECURITY Condition 3):** the create itself, the `(customer, CREATE)` audit `changes`, and any log line on
+   this path MUST be pii-masked — the raw `waContactId`/phone is NEVER logged.
 4. Back-link `Conversation.customerId` if it was null.
 
 **`Customer.consentId` stays nullable** and creation is **never blocked** by absence of a messaging-consent
@@ -379,33 +420,69 @@ grant (S6/AC5) — capturing a transactional sale is a distinct lawful basis fro
 
 M3-B does **not** rebuild the consent point — it **calls the M3-A enforcement point** on every send path and
 makes it **customer-aware** so per-customer revocation (S6/AC3) works, while keeping the **default-deny**
-posture and the **transactional/marketing branch split** intact (S6/AC1) and **structured so the §8.1 ruling
+posture and the **transactional/marketing branch split** intact (S6/AC1) and **structured so the brief §8.1 ruling
 changes the branch policy, not the call sites** (S6/AC4).
 
 ### 6.1 The wiring
 
-- **Single enforcement point.** Every outbound send (S2 reply, S4 catalog share, S5 auto-reply, S7 status
-  notify) flows through `sendWhatsAppMessage()` → `assertConsentGranted(...)` (M3-A). No send path bypasses it.
-- **Make the check customer-aware (additive).** M3-B passes the **conversation context** into the consent
-  point so it can resolve the customer:
-  - `assertConsentGranted(businessId, sendClass, isTemplate, ctx)` where `ctx` carries `conversationId`
-    (and, if linked, `customerId` / the conversation's `waContactId`).
+- **Single enforcement point (SECURITY Condition 4 — no auto-reply side-door).** **All four** M3-B send paths
+  — S2 reply, S4 catalog share, S5 auto-reply, S7 status notify — MUST flow through `sendWhatsAppMessage()` →
+  `assertConsentGranted` + window-selection + `WhatsAppChannel.enabled` gate. **No path** (the auto-reply
+  evaluator included) may construct or dispatch an outbound message bypassing this function. This is the one
+  choke-point; the brief §8.1 ruling changes only its branch policy (Condition 5d), never the call sites.
+- **Make the check customer-aware (additive) — SECURITY Condition 5a + 5d.** M3-B passes the **conversation
+  context** into the consent point so it can resolve the customer, and concentrates ALL branch policy in this
+  one function:
+  - **(5a)** extend the signature to
+    `assertConsentGranted(businessId, sendClass, isTemplate, ctx)` where
+    `ctx` carries `conversationId` (and, if linked, `customerId` / the conversation's `waContactId`).
+  - **(5d)** when the brief §8.1 responsible-party ruling lands it MUST change ONLY the branch policy **inside this
+    one function** — never any of the four call sites (S2/S4/S5/S7). The call sites pass context; the function
+    decides. This is the structural guarantee that the OPEN ruling is a one-function change.
   - **Branch on `sendClass` (S6/AC1), never collapse the two classes:**
     - `TRANSACTIONAL` free-form **inside an OPEN window** → allowed (replying to an active enquiry; M3-A
       behaviour preserved).
-    - `MARKETING` / non-transactional → **default-DENY** until the §8.1 ruling lands (S6/AC4).
+    - `MARKETING` / non-transactional → **default-DENY** until the brief §8.1 ruling lands (S6/AC4).
     - Template sends → require a recorded grant per the M3-A stub (the ruling may relax transactional
       templates later — a branch change, not a call-site change).
-  - **Per-customer revocation (S6/AC3):** when the conversation is linked to a `Customer` with a non-null
-    `consentId`, the check reads that `Consent` + its latest `ConsentRevocation` (M1 ledger); a revocation →
-    refuse non-transactional/marketing with the M3-A **`403 whatsapp_consent_denied`** envelope.
+  - **Per-customer revocation (S6/AC3) — SECURITY Condition 5b/5c, DESIGNED-NOT-BUILT (residual R1):** the
+    **data-model seam** that scopes a revocation to a WhatsApp customer is specified here so the ruling can land
+    against it: the per-customer `Consent` row that **`Customer.consentId`** points at (a subject/customer
+    reference on the M1 `Consent`/`ConsentRevocation` ledger). When that row exists and is non-null, the check
+    reads that `Consent` + its latest `ConsentRevocation` (M1 ledger); a revocation → refuse
+    non-transactional/marketing with the M3-A **`403 whatsapp_consent_denied`** envelope. **(5c) Default-deny
+    is preserved when no customer-scoped grant exists** AND transactional-in-open-window stays allowed (see the
+    `sendClass` branch below). **Because E2 (the responsible-party ruling) is OPEN and governs the final model
+    shape, M3-B SHIPS the seam (signature + model sketch) but DEFERS building the per-customer revocation store
+    — see the residual-risk note §6.1a (R1).**
 - **Ledger is the source of truth (S6/AC2):** opt-in/revocation read **only** from M1
   `Consent`/`ConsentRevocation` — no new ad-hoc flag. `Customer.consentId` stays **nullable** (S6/AC4); when
   null, the marketing branch is default-deny (no grant ⇒ no marketing send).
 - **Refusal is auditable + masked (S6/AC6):** a denied send writes `(whatsapp_autoreply, SUPPRESSED)` (for
   auto-replies) or surfaces the `403` envelope (for explicit sends) with **masked** customer identifiers.
 
-### 6.2 Why this slots the §8.1 ruling in cleanly
+### 6.1a Residual risk **R1** — per-customer revocation is DESIGNED, not BUILT (conscious acceptance, GA blocker)
+
+**SECURITY Condition 5 — explicit written acceptance (NOT a silent gap).** Per Condition 5, the architect
+designs the seam now and defers the store until the E2 ruling lands. The residual risk is consciously accepted:
+
+> **R1: per-customer revocation (S6/AC3) is NOT functionally met in M3-B.** The M3-B surface ships
+> **default-deny-marketing** for the 360dialog **sandbox slice**: with no customer-scoped grant present,
+> `assertConsentGranted` denies all marketing/non-transactional sends and allows only transactional-in-open-window.
+> A revoked-customer marketing suppression that is *scoped to one WhatsApp customer* does not function until the
+> per-customer revocation store (Condition 5b) is built. **This is a GA blocker. It resolves when 5(b) lands
+> together with the E2 responsible-party ruling** (which governs the final model shape — see E2 below). Until
+> then, the default-deny posture is the safe fallback (no marketing is sent to anyone without a grant), so R1 is
+> a *missing-capability* risk, not a *leak* risk.
+
+**Model sketch for 5(b) (built when E2 lands — NOT in M3-B build DoD):** add a subject/customer reference to the
+M1 consent ledger so a revocation is per-customer-scoped, e.g. a nullable `customerId` (or generic
+`subjectType`/`subjectId`) on `Consent`/`ConsentRevocation`, populated via the `Customer.consentId` link created
+on capture. `assertConsentGranted(..., ctx)` resolves `ctx.customerId` → that `Consent` row → its latest
+`ConsentRevocation`. The signature (5a) and the four call sites are ALREADY shaped for this in M3-B; only the
+store + the branch-policy read are deferred (5d guarantees that is a one-function change).
+
+### 6.2 Why this slots the brief §8.1 ruling in cleanly
 
 The **branch policy** (what each `sendClass` requires) lives in **one function**. The ruling (merchant =
 responsible party / Inyuku = operator) changes *that policy* — e.g. whether a transactional template needs a
@@ -415,22 +492,31 @@ sites**. This is exactly the M3-A design intent (M3-A §6, brief S6/AC4). M3-B *
 ### 6.3 Auto-reply respects the same gates + loop prevention (S5/AC5, S5/AC7) — non-negotiable
 
 An auto-reply is an **ordinary outbound send through the same gate** — it can never bypass window/consent:
-- It calls `sendWhatsAppMessage()` (window auto-selection + `assertConsentGranted` + `enabled` flag) like any
-  other send. An out-of-window auto-reply is suppressed or template-only per M3-A (S5/AC5).
-- **Loop prevention (S5/AC7) — fires ONLY on a genuine inbound customer message:** the auto-reply evaluator
-  triggers from the **M3-A inbound drainer**, gated to fire **only** when the just-persisted `Message` has
-  `direction = INBOUND` **and** `type ∈ {TEXT, INTERACTIVE, …}` (a real customer message) — **NEVER** on
-  `direction = OUTBOUND`, **NEVER** on `type = STATUS` (status callbacks), **NEVER** on the platform's own
-  echoes. (Echoes/status are not inbound customer text, so they cannot trigger a rule.)
-- **Once-per-period (S5/AC1, AC3):** before sending, the evaluator checks the existing `Message` ledger for a
-  prior **OUTBOUND auto-reply** of the same `trigger` on this conversation within `cooldownMinutes`
+- **(SECURITY Condition 4 + 6a):** it sends ONLY via `sendWhatsAppMessage()` (window auto-selection +
+  `assertConsentGranted` + `enabled` flag) like any other send — the evaluator has **no** outbound side-door.
+  An out-of-window auto-reply is suppressed or template-only per M3-A (S5/AC5).
+- **(SECURITY Condition 6b — observable suppression):** on **every** fire the evaluator emits
+  `(whatsapp_autoreply, FIRE)` and on **every** suppression (window/consent/cooldown/loop-guard) it emits
+  `(whatsapp_autoreply, SUPPRESSED)` — both pii-masked. Suppression is never silent.
+- **Loop prevention (S5/AC7) — SECURITY Condition 7, fires ONLY on a genuine inbound customer message:** the
+  auto-reply evaluator triggers from the **M3-A inbound drainer**, gated to fire **only** when the
+  just-persisted `Message` has `direction = INBOUND` **and** `type ∈ {TEXT, INTERACTIVE}` (a real customer
+  message) — **NEVER** on `direction = OUTBOUND`, **NEVER** on status callbacks, **NEVER** on the platform's own
+  echoes. (Echoes/status are not inbound customer text, so they cannot trigger a rule.) The `type` allow-list is
+  exactly `{TEXT, INTERACTIVE}` — no open-ended "…" — so a new message type cannot silently start triggering
+  auto-replies.
+- **Once-per-period (S5/AC1, AC3) — SECURITY Condition 7 cont.:** before sending, the evaluator MUST check the
+  existing `Message` ledger for a prior **OUTBOUND auto-reply of the same `trigger`** on this conversation
+  within `cooldownMinutes`, and suppress (with the `(whatsapp_autoreply, SUPPRESSED)` audit) if found
   (GREETING: re-fire only after `cooldownMinutes` silence; OUT_OF_HOURS: at most once per closed period).
   No per-conversation counter table — loop state is **derived from the append-only ledger**, keeping the
-  rule table config-only.
-- **Provably non-AI (S5/AC4):** the evaluator is a **deterministic rule matcher** — exact normalised keyword
-  compare, SAST-clock hours check, ledger-based first-inbound/silence check. **It MUST NOT import or call
-  `lib/ai.js`**, MUST NOT be generative, MUST NOT do intent detection. (STRIDE/CI check: the auto-reply
-  module must have **zero** `lib/ai.js` references — §12.)
+  rule table config-only. (Condition 7 bounds *per-conversation* loops; aggregate per-tenant spend is the
+  separate founder/EA escalation **E1** — see the security-gate section.)
+- **Provably non-AI (S5/AC4) — SECURITY Condition 6c:** the evaluator is a **deterministic rule matcher** —
+  exact normalised keyword compare, SAST-clock hours check, ledger-based first-inbound/silence check. **It MUST
+  NOT import or call `lib/ai.js`**, MUST NOT be generative, MUST NOT do intent detection. **This is enforced by
+  a CI grep assertion against the auto-reply module** (the module must contain **zero** `lib/ai.js`
+  imports/references; the assertion fails the build otherwise) — not merely a code-review convention. See §12.
 
 ---
 
@@ -460,10 +546,13 @@ customer; sell-price-only, never cost).
 | `order:write` / `customer:write` / `inventory:write` / `sync:write` (capture) | ✓ | ✓ | ✗ |
 | `catalog:read_cost` / `dashboard:read_financial` | ✓ | **✗ (hidden, not zeroed)** | ✗ |
 
-- **Cost-split (S3/AC5, S1/AC4, brief §10):** `MERCHANT_STAFF` keeps every commerce/WhatsApp **operate**
-  permission but **NOT** `catalog:read_cost`, `dashboard:read_financial`, `whatsapp:manage_channel`, or the
-  new `whatsapp:manage_autoreply`. The catalog-picker and catalog-share Sipho sees are **sell-price-only** —
-  cost is **hidden by omission**, never returned-as-zero.
+- **Cost-split (S3/AC5, S1/AC4, brief §10) — SECURITY Condition 2 (HIDE, not zero, on EVERY M3-B surface):**
+  `MERCHANT_STAFF` keeps every commerce/WhatsApp **operate** permission but **NOT** `catalog:read_cost`,
+  `dashboard:read_financial`, `whatsapp:manage_channel`, or the new `whatsapp:manage_autoreply`. On **all three**
+  M3-B surfaces a staff user touches — (i) the capture **catalog-picker**, (ii) the `share-catalog` composer,
+  and (iii) the **captured-order view** returned after capture — `costPriceCents`/margin/financial fields are
+  omitted **by omission, never returned as `0`**. The `share-catalog` route MUST NOT read `costPriceCents` at
+  all (sell-price-only query — §4.2). Cost is **hidden**, never zeroed.
 - **`AI_AGENT` untouched** — read-only (`whatsapp:read` only on this surface, M3-A §10); no send, no config,
   no capture. M3-B has **no AI** on the conversational surface (brief §10).
 - **Owner-configures / staff-operates is non-negotiable** (S5/AC6) — encoded by `manage_autoreply` being
@@ -480,6 +569,26 @@ auto-select free-form vs APPROVED template (S7/AC1). A free-form send while CLOS
 `422 whatsapp_template_invalid`. No contract change.
 
 ---
+
+### 8.2 Carried-forward M3-A controls + end-to-end replay/idempotency (SECURITY Condition 9)
+
+M3-B **does not weaken** any M3-A control. The contract re-confirms all of:
+- **Signature-verify-before-parse + fail-closed `401`** on inbound webhooks (M3-A) — unchanged; M3-B adds no
+  parsing ahead of verification.
+- **Provider-id idempotency** for inbound: `@@unique([businessId, providerMessageId])` + ON CONFLICT no-op
+  (ADR-INY-018) — unchanged.
+- **Server-side number→tenant routing** (the inbound number resolves the tenant server-side, never client-asserted).
+- **PII-masked logging** on the whole ingest→capture→send path (Conditions 3/6 reinforce this).
+- **Fast-ack-then-async ingest** (M3-A drainer) — the auto-reply evaluator (§6.3) runs on the async drain, not
+  in the ack path.
+- **End-to-end inbound→capture replay/idempotency chain (Condition 9, explicit):** a **redelivered inbound
+  event cannot produce a duplicate order or a double stock decrement.** The chain is: inbound dedup
+  (`@@unique([businessId, providerMessageId])`, ON CONFLICT no-op) ⇒ a redelivered webhook persists no second
+  `Message` and re-triggers nothing; **and** order convergence (`@@unique([businessId, clientId])` on `Order` +
+  LWW-on-`occurredAt`, ADR-INY-024) ⇒ a replayed/duplicate capture resolves to `DUPLICATE`; **and** stock
+  idempotency (deterministic `StockMovement.clientId = "<orderId>:sale:<productId>"`, ADR-INY-015/016) ⇒ no
+  second SALE decrement. All three links MUST hold together; QA MUST test the full chain (redeliver inbound →
+  assert exactly one `Order`, exactly one set of SALE movements).
 
 ## 9. Compliance seams (default-safe; do NOT block sandbox build)
 
@@ -556,10 +665,64 @@ No contradiction blocks the design; both are additive extensions of frozen seams
 
 ---
 
+## Security gate (bukani-security STRIDE §8) — baked conditions
+
+> **Verdict:** **APPROVED-WITH-CONDITIONS** (bukani-security, 2026-06-23). Freeze is unblocked because
+> Conditions 1–9 are folded into the route/schema/service sections above and residual **R1** is consciously
+> documented (§6.1a). This section is the **single index** of where each condition lives so an implementer
+> cannot miss one. **Two new findings (#3, #4) verified in code are addressed in-contract** (not merely noted).
+
+### Conditions 1–9 — index of where each is baked
+
+| # | Condition (testable) | Baked in |
+|---|---|---|
+| **1** | **Tenant-isolation on capture (closes findings #1 & #3).** Every order-capture handler (online `POST /orders` AND offline `sync` order op) MUST, before writing `Order.conversationId` or `Order.customerId`: load the `Conversation` → reject 403/404 unless `conversation.businessId === route businessId`; load the `Customer` → reject unless `customer.businessId === route businessId`. Never write a cross-tenant link. | §2.1 (businessId scoping), §4.1(a)+(b), §5.1 (createOrder extension) |
+| **2** | **RBAC cost-split on every M3-B surface (HIDE, not zero).** Capture catalog-picker, `share-catalog` composer, and the captured-order view returned to `MERCHANT_STAFF` omit `costPriceCents`/margin/financial by omission (not `0`); `share-catalog` route MUST NOT read `costPriceCents` at all. | §4.2 (cost bullet), §7.3 (cost-split bullet) |
+| **3** | **PII masking on the new capture path.** Customer-create-from-`waContactId`, the `(customer,CREATE)`/`(order,CREATE)` audit `changes`, and every capture/auto-reply log line MUST be pii-masked; raw `waContactId`/phone/`Message.body` NEVER logged; `Customer.consentId` stays nullable. | §3 (audit note), §5.2 step 3 |
+| **4** | **Single send choke-point — no auto-reply side-door.** All four send paths (S2 reply, S4 catalog share, S5 auto-reply, S7 status notify) flow through `sendWhatsAppMessage()` → `assertConsentGranted` + window-selection + `WhatsAppChannel.enabled`. No path bypasses it. | §4.2 (send rules), §6.1 (single enforcement point), §6.3 (intro bullet) |
+| **5** | **Consent customer-aware + close structural gap (finding #2), with R1 deferred-and-documented.** (a) extend `assertConsentGranted(businessId, sendClass, isTemplate, ctx)`; (b) specify the data-model seam scoping a revocation to a WhatsApp customer (the per-customer `Consent` row `Customer.consentId` points at); (c) preserve default-deny marketing + transactional-in-open-window allow with no customer grant; (d) the brief §8.1 ruling changes ONLY the branch policy in this one function, not the four call sites. **DESIGN the seam, DEFER the per-customer revocation store, DOCUMENT residual R1.** | §6.1 (customer-aware + per-customer revocation bullets), **§6.1a (R1 acceptance + model sketch)** |
+| **6** | **Auto-reply gate + provably non-AI + observable suppression.** (a) send only via `sendWhatsAppMessage()`; (b) emit `(whatsapp_autoreply, FIRE)` AND `(whatsapp_autoreply, SUPPRESSED)` masked audit on every fire/suppress; (c) ZERO `lib/ai.js` refs — enforced by a CI grep assertion against the auto-reply module. | §3 (audit note), §6.3 (intro + non-AI bullets), §12 |
+| **7** | **Loop / cost-DoS prevention.** Evaluator fires ONLY when the just-persisted `Message` has `direction = INBOUND` AND `type ∈ {TEXT, INTERACTIVE}` — never OUTBOUND, never status, never echoes — AND enforces `cooldownMinutes`/once-per-period from the prior OUTBOUND auto-reply of the same `trigger` in the ledger. | §2.2 (loop note), §6.3 (loop + once-per-period bullets) |
+| **8** | **Validate the offline sync order payload (closes finding #4).** The `sync` order-create op validates its `payload` with the SAME typed Zod schema as the online `POST /orders` body (incl. new optional `channel`/`conversationId`) before reaching `createOrder`. No unvalidated field reaches the service; per-op partial-success preserved. | §4.1(b) (Condition 8 bullet) |
+| **9** | **Carry M3-A conditions forward.** No weakening of: signature-verify-before-parse + fail-closed 401, provider-id idempotency (`@@unique([businessId, providerMessageId])` + ON CONFLICT no-op), server-side number→tenant routing, pii-masked logging, fast-ack-then-async ingest. Re-confirm the inbound→capture replay/idempotency chain end-to-end (a redelivered inbound event cannot produce a duplicate order or double stock decrement). | **§8.2 (carried-forward controls + end-to-end replay chain)** |
+
+### New findings verified in code — addressed in-contract
+
+- **Finding #3 — `createOrder` did NOT tenant-validate `customerId`** (`server/src/services/order.service.ts`
+  wrote `customerId: input.customerId ?? null` with no `customer.businessId === input.businessId` check;
+  product lines were scoped, customer was not). **Closed** in §5.1 + §2.1 + §4.1 (folded into Condition 1).
+- **Finding #4 — sync `payload` was unvalidated** (`z.record(z.unknown())` passthrough in
+  `commerce.routes.ts`; offline capture puts `channel`/`conversationId` through it). **Closed** in §4.1(b)
+  (Condition 8): the order op's `payload` is validated with the same typed Zod schema as the online body.
+
+### Residual risk — R1 (consciously accepted)
+
+**R1 — per-customer revocation (S6/AC3) is NOT functionally met in M3-B.** The surface ships
+**default-deny-marketing** for the sandbox slice; per-customer-scoped revocation suppression does not function
+until the Condition 5(b) store is built. **This is a GA blocker that resolves when 5(b) lands with the E2
+ruling.** Full written acceptance + model sketch: **§6.1a**. (R1 is a missing-capability risk, not a leak risk:
+default-deny means no marketing is sent to anyone without a grant.)
+
+### Escalations recorded (founder / compliance gates — NOT solved here; do not invent answers)
+
+- **E1 — per-tenant WhatsApp conversation cost ceiling + kill switch → founder / EA.** Analogous to the
+  EA-ADR-011 R3,000/mo AI ceiling. Condition 7 bounds *per-conversation* loops; it does **not** bound aggregate
+  per-tenant spend. **Track as a live-cutover gate.**
+- **E2 — customer-directory / WhatsApp responsible-party ruling → bukani-compliance.** GA-gating; governs the
+  §6 branch policy and Condition 5(b). M3-B builds under default-deny stubs; **does not invent the ruling.**
+- **E3 — 360dialog sub-processor DPA + EU-pin + risk assessment → bukani-compliance** (EA-ADR-015 extension).
+  Live stays **DARK** behind `WhatsAppChannel.enabled`; **no production PII until cleared** (§9).
+- **E4 — Message/Conversation→Order/Customer retention period → bukani-compliance.** The
+  `whatsapp.message.retentionDays` Setting (§9) is the seam; **do NOT hard-code** a period.
+
+---
+
 ## 12. Security-sensitive surfaces for the bukani-security STRIDE (freeze gate)
 
-This is the input the STRIDE pass must gate on (brief §8.4). M3-A's STRIDE covered the webhook/channel; M3-B
-adds the commerce-from-chat surface. **Freeze is blocked until bukani-security PASSes these.**
+This is the input the STRIDE pass gated on (brief §8.4). M3-A's STRIDE covered the webhook/channel; M3-B
+adds the commerce-from-chat surface. **bukani-security has gated these: verdict APPROVED-WITH-CONDITIONS
+(2026-06-23); Conditions 1–9 are baked (see the "Security gate" section above for the per-condition index) and
+residual R1 is documented (§6.1a).**
 
 - **Cross-tenant capture / inbox isolation (Tampering / Information Disclosure / Elevation).** Order capture
   writes `Order.conversationId` and a `Customer` from a `Conversation`. The capture path **MUST** assert
@@ -599,10 +762,20 @@ Per brief §11, against the 360dialog **sandbox**: inbox read + window-aware rep
 `Order(channel=WHATSAPP)` with customer link/create + ledger decrement + dashboard reflection, converging
 exactly once offline (S3); deterministic auto-replies / catalog share / status notifications obeying window +
 consent gates (S4/S5/S7); RBAC cost-split + PII-masking on every surface; consent under the default-deny stub
-with `Customer.consentId` nullable (S6); and **the bukani-security STRIDE entry (§12) is IN and its
-conditions are reflected here before FREEZE.** Live messaging stays DARK (brief §8.2) — not in build DoD.
+with `Customer.consentId` nullable (S6); and **the bukani-security STRIDE entry (§12) is IN, the verdict is
+APPROVED-WITH-CONDITIONS, and Conditions 1–9 are reflected throughout (per the "Security gate" index) with
+residual R1 consciously accepted (§6.1a).** Live messaging stays DARK (brief §8.2) — not in build DoD.
+**KIMI build DoD now additionally includes:** the CI grep assertion (Condition 6c) proving the auto-reply module
+has zero `lib/ai.js` references, and a QA test of the end-to-end inbound→capture replay/idempotency chain
+(Condition 9 — redeliver inbound ⇒ exactly one `Order`, exactly one set of SALE movements). R1, E1–E4 are
+GA/live-cutover gates, NOT M3-B sandbox-build blockers.
 
 ---
 
-> **STATUS: DRAFT — pending bukani-security STRIDE before FREEZE.** Do not treat as frozen. KIMI must not
-> begin M3-B build until this is frozen post-STRIDE-PASS (the M2/M3-A gating pattern).
+> **STATUS: FROZEN (bukani-security APPROVED-WITH-CONDITIONS, conditions 1–9 baked, R1 documented) —
+> 2026-06-23.** KIMI may begin M3-B build against this frozen contract. Conditions 1–9 are baked into
+> §§2/3/4/5/6/7/8 and indexed in the "Security gate (bukani-security STRIDE §8) — baked conditions" section;
+> findings #3 and #4 are closed in-contract; residual R1 is consciously accepted (§6.1a) as a GA blocker;
+> escalations E1–E4 are recorded as founder/compliance gates. Live messaging stays DARK behind
+> `WhatsAppChannel.enabled` until the EA-ADR-015 360dialog DPA/EU-pin/risk-assessment (E3) clears — not in the
+> M3-B build DoD.
