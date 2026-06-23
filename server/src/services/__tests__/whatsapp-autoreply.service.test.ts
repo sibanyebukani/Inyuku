@@ -18,8 +18,8 @@ describe('evaluateAutoReplies', () => {
     });
   });
 
-  function inbound(body: string, type: 'TEXT' | 'INTERACTIVE' = 'TEXT', direction: 'INBOUND' | 'OUTBOUND' = 'INBOUND') {
-    return { id: 'm', businessId: biz.id, conversationId: conv.id, direction, type, body, occurredAt: new Date() } as any;
+  function inbound(body: string, type: 'TEXT' | 'INTERACTIVE' = 'TEXT', direction: 'INBOUND' | 'OUTBOUND' = 'INBOUND', occurredAt?: Date) {
+    return { id: 'm', businessId: biz.id, conversationId: conv.id, direction, type, body, occurredAt: occurredAt ?? new Date() } as any;
   }
 
   it('ignores OUTBOUND messages (Condition 7)', async () => {
@@ -106,5 +106,70 @@ describe('evaluateAutoReplies', () => {
 
     await prisma.whatsAppAutoReplyRule.deleteMany({ where: { id: rule.id } });
     spy.mockRestore();
+  });
+
+  describe('OUT_OF_HOURS / SAST boundary coverage', () => {
+    async function makeOohRule(overrides: Partial<{ hoursStart: string; hoursEnd: string; daysActive: number[] }> = {}) {
+      return prisma.whatsAppAutoReplyRule.create({
+        data: {
+          businessId: biz.id,
+          trigger: 'OUT_OF_HOURS',
+          action: 'SEND_TEXT',
+          replyText: 'We are closed',
+          enabled: true,
+          cooldownMinutes: 0,
+          hoursStart: '09:00',
+          hoursEnd: '17:00',
+          daysActive: [],
+          ...overrides,
+        },
+      });
+    }
+
+    it('does not fire when message is inside the open window', async () => {
+      const rule = await makeOohRule();
+      const spy = vi.spyOn(sendSvc, 'sendWhatsAppMessage').mockResolvedValue({ message: {} } as any);
+      // SAST Tue 18 Jun 2024 12:00 == UTC 10:00
+      await evaluateAutoReplies(biz.id, conv, inbound('hi', 'TEXT', 'INBOUND', new Date('2024-06-18T10:00:00.000Z')));
+      expect(spy).not.toHaveBeenCalled();
+      await prisma.whatsAppAutoReplyRule.deleteMany({ where: { id: rule.id } });
+      spy.mockRestore();
+    });
+
+    it('fires when message is outside the open window', async () => {
+      const rule = await makeOohRule();
+      const spy = vi.spyOn(sendSvc, 'sendWhatsAppMessage').mockResolvedValue({ message: {} } as any);
+      // SAST Tue 18 Jun 2024 20:00 == UTC 18:00
+      await evaluateAutoReplies(biz.id, conv, inbound('hi', 'TEXT', 'INBOUND', new Date('2024-06-18T18:00:00.000Z')));
+      expect(spy).toHaveBeenCalledTimes(1);
+      await prisma.whatsAppAutoReplyRule.deleteMany({ where: { id: rule.id } });
+      spy.mockRestore();
+    });
+
+    it('handles a midnight-wrap window correctly', async () => {
+      const rule = await makeOohRule({ hoursStart: '22:00', hoursEnd: '06:00' });
+      const spy = vi.spyOn(sendSvc, 'sendWhatsAppMessage').mockResolvedValue({ message: {} } as any);
+      // SAST Tue 02:00 is inside the 22:00-06:00 open window -> no fire
+      await evaluateAutoReplies(biz.id, conv, inbound('hi', 'TEXT', 'INBOUND', new Date('2024-06-18T00:00:00.000Z')));
+      expect(spy).not.toHaveBeenCalled();
+      // SAST Tue 12:00 is outside the open window -> fire
+      await evaluateAutoReplies(biz.id, conv, inbound('hi', 'TEXT', 'INBOUND', new Date('2024-06-18T10:00:00.000Z')));
+      expect(spy).toHaveBeenCalledTimes(1);
+      await prisma.whatsAppAutoReplyRule.deleteMany({ where: { id: rule.id } });
+      spy.mockRestore();
+    });
+
+    it('respects daysActive', async () => {
+      const rule = await makeOohRule({ daysActive: [6, 7] });
+      const spy = vi.spyOn(sendSvc, 'sendWhatsAppMessage').mockResolvedValue({ message: {} } as any);
+      // SAST Sat 22 Jun 2024 20:00 is outside window and a weekend -> fire
+      await evaluateAutoReplies(biz.id, conv, inbound('hi', 'TEXT', 'INBOUND', new Date('2024-06-22T18:00:00.000Z')));
+      expect(spy).toHaveBeenCalledTimes(1);
+      // SAST Mon 24 Jun 2024 20:00 is outside window but not Sat/Sun -> no fire
+      await evaluateAutoReplies(biz.id, conv, inbound('hi', 'TEXT', 'INBOUND', new Date('2024-06-24T18:00:00.000Z')));
+      expect(spy).toHaveBeenCalledTimes(1);
+      await prisma.whatsAppAutoReplyRule.deleteMany({ where: { id: rule.id } });
+      spy.mockRestore();
+    });
   });
 });
