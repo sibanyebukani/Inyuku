@@ -31,6 +31,7 @@ export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'whatsapp:read',
     'whatsapp:send',
     'whatsapp:manage_channel',
+    'whatsapp:manage_autoreply',
   ],
   MERCHANT_STAFF: [
     'business:read',
