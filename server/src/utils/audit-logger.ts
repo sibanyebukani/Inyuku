@@ -24,7 +24,10 @@ export type AuditAction =
   | 'RECEIVE'
   | 'SEND'
   | 'VERIFY_FAILED'
-  | 'UNROUTED';
+  | 'UNROUTED'
+  // M3-B auto-reply deterministic matcher
+  | 'FIRE'
+  | 'SUPPRESSED';
 
 export interface AuditLogInput {
   userId?: string | null;
