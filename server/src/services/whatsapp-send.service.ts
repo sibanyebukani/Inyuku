@@ -25,6 +25,12 @@ export interface SendMessageInput {
   language?: string | null;
 }
 
+export interface ConsentContext {
+  conversationId?: string;
+  customerId?: string | null;
+  waContactId?: string;
+}
+
 /**
  * Default-deny consent enforcement point (POPIA §7b stub).
  *
@@ -39,9 +45,24 @@ export async function assertConsentGranted(
   businessId: string,
   sendClass: SendClass,
   isTemplate: boolean,
+  ctx?: ConsentContext,
 ): Promise<void> {
-  if (sendClass === 'TRANSACTIONAL' && !isTemplate) {
-    return;
+  // Transactional free-form inside an open window is always allowed (M3-A behaviour preserved).
+  if (sendClass === 'TRANSACTIONAL' && !isTemplate) return;
+
+  // R1 seam: a per-customer consent, when present, governs. In M3-B Customer.consentId
+  // stays nullable so this branch is inert by default (per-customer store deferred).
+  if (ctx?.customerId) {
+    const customer = await prisma.customer.findUnique({
+      where: { id: ctx.customerId },
+      include: { consent: { include: { revocations: { orderBy: { createdAt: 'desc' }, take: 1 } } } },
+    });
+    if (customer?.consent) {
+      const ok = customer.consent.status === 'GRANTED' && customer.consent.revocations.length === 0;
+      if (!ok) throw new AppError('whatsapp_consent_denied', 'WhatsApp consent not granted', 403);
+      return;
+    }
+    // no per-customer grant -> fall through to business-scoped default-deny
   }
 
   const purpose = isTemplate ? 'whatsapp:template' : 'whatsapp:marketing';
@@ -89,7 +110,11 @@ export async function sendWhatsAppMessage(
   }
 
   // 3. Consent enforcement point.
-  await assertConsentGranted(businessId, input.sendClass, input.type === 'TEMPLATE');
+  await assertConsentGranted(businessId, input.sendClass, input.type === 'TEMPLATE', {
+    conversationId: conversation.id,
+    customerId: conversation.customerId,
+    waContactId: conversation.waContactId,
+  });
 
   // 4. Window selection.
   const { state: windowStateResult } = windowState(conversation.lastInboundAt, now);
