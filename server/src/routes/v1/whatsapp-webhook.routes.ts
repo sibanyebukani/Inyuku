@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { timingSafeEqual, createHash } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { getSecretSetting, WHATSAPP_WEBHOOK_VERIFY_TOKEN_KEY } from '../../services/settings.service.js';

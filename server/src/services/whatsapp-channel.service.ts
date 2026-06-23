@@ -5,7 +5,6 @@
  * (`whatsapp:manage_channel`); webhooks never auto-provision.
  */
 
-import { Prisma } from '@prisma/client';
 import { prisma } from '../db.js';
 import { ConflictError, NotFoundError } from '../utils/errors.js';
 

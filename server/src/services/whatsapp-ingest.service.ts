@@ -6,7 +6,6 @@
  * `Message` rows. This is the async half of the fast-ack pipeline.
  */
 
-import { Prisma } from '@prisma/client';
 import { prisma } from '../db.js';
 import { auditLog } from '../utils/audit-logger.js';
 import { checkRateLimit } from '../utils/rate-limit.js';
@@ -19,6 +18,21 @@ export const REPLAY_WINDOW_MS = 5 * 60 * 1000;
 
 export type InboundStatus = 'received' | 'sent' | 'delivered' | 'read' | 'failed';
 
+type InboundMessage = {
+  id?: string;
+  from?: string;
+  timestamp?: string;
+  type?: string;
+  text?: { body?: string };
+  image?: { id?: string; mime_type?: string };
+  document?: { id?: string; mime_type?: string };
+  audio?: { id?: string; mime_type?: string };
+  video?: { id?: string; mime_type?: string };
+  location?: unknown;
+  contacts?: unknown;
+  interactive?: unknown;
+};
+
 type WebhookPayload = {
   object?: string;
   entry?: Array<{
@@ -29,20 +43,7 @@ type WebhookPayload = {
         messaging_product?: string;
         metadata?: { phone_number_id?: string; display_phone_number?: string };
         contacts?: Array<{ wa_id?: string; profile?: { name?: string } }>;
-        messages?: Array<{
-          id?: string;
-          from?: string;
-          timestamp?: string;
-          type?: string;
-          text?: { body?: string };
-          image?: { id?: string; mime_type?: string };
-          document?: { id?: string; mime_type?: string };
-          audio?: { id?: string; mime_type?: string };
-          video?: { id?: string; mime_type?: string };
-          location?: unknown;
-          contacts?: unknown;
-          interactive?: unknown;
-        }>;
+        messages?: InboundMessage[];
         statuses?: Array<{
           id?: string;
           status?: string;
@@ -251,7 +252,7 @@ function isWithinReplayWindow(occurredAt: Date, now: Date): boolean {
   return Math.abs(delta) <= REPLAY_WINDOW_MS;
 }
 
-function mapInboundMessage(msg: WebhookPayload['entry'][0]['changes'][0]['value']['messages'][0]): {
+function mapInboundMessage(msg: InboundMessage): {
   type: import('@prisma/client').MessageType;
   body: string | null;
   mediaKey: string | null;
@@ -340,7 +341,7 @@ export async function markInboundEventFailed(
   eventId: string,
   attempts: number,
   error: string,
-  now = new Date(),
+  _now = new Date(),
 ): Promise<void> {
   const status = attempts >= MAX_RETRY_ATTEMPTS ? 'FAILED' : 'PENDING';
   await prisma.whatsAppInboundEvent.update({

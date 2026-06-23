@@ -10,7 +10,6 @@ import {
   cleanupTestUsers,
   cleanupTestBusinesses,
 } from '../../../test-helpers.js';
-import whatsappRoutes from '../whatsapp.routes.js';
 import { setSetting } from '../../../services/settings.service.js';
 
 let app: FastifyInstance;
@@ -27,7 +26,6 @@ let ownerTokenB: string;
 
 beforeAll(async () => {
   app = buildApp();
-  await app.register(whatsappRoutes);
   await app.ready();
 
   await cleanupTestUsers([

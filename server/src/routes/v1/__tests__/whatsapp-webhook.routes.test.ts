@@ -49,6 +49,7 @@ function samplePayload(phoneNumberId: string, messageId: string) {
 
 describe('whatsapp webhook routes', () => {
   beforeAll(async () => {
+    await prisma.whatsAppInboundEvent.deleteMany({ where: { businessId: null } });
     app = Fastify({
       logger: {
         level: 'info',

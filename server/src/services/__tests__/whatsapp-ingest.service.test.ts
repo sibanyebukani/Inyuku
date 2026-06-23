@@ -70,6 +70,12 @@ describe('whatsapp ingest service', () => {
   beforeAll(async () => {
     const business = await createTestBusiness({ name: 'WhatsApp Ingest Test Biz' });
     businessId = business.id;
+    await prisma.whatsAppInboundEvent.deleteMany({
+      where: { OR: [{ businessId }, { businessId: null }] },
+    });
+    await prisma.message.deleteMany({ where: { businessId } });
+    await prisma.conversation.deleteMany({ where: { businessId } });
+    await prisma.whatsAppChannel.deleteMany({ where: { businessId } });
     const channel = await prisma.whatsAppChannel.create({
       data: {
         businessId,

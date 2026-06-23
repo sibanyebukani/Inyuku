@@ -15,6 +15,9 @@ import businessRoutes from './routes/v1/businesses.routes.js';
 import adminRoutes from './routes/v1/admin.routes.js';
 import leadsRoutes from './routes/v1/leads.routes.js';
 import commerceRoutes from './routes/v1/commerce.routes.js';
+import whatsappRoutes from './routes/v1/whatsapp.routes.js';
+import whatsappWebhookRoutes from './routes/v1/whatsapp-webhook.routes.js';
+import { startWhatsAppDrainer, stopWhatsAppDrainer } from './services/whatsapp-drainer.js';
 import * as Sentry from '@sentry/node';
 import authMiddleware from './middleware/auth.middleware.js';
 import permissionGuard from './middleware/require-permission.js';
@@ -95,6 +98,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   if (allowedOrigins && Array.isArray(allowedOrigins) && allowedOrigins.length > 0) {
     app.addHook('onRequest', async (req, reply) => {
       if (!unsafeMethods.has(req.method)) return;
+      // Webhook edge is server-to-server and exempt from the CORS/CSRF lock.
+      if (req.url.startsWith('/v1/webhooks/whatsapp')) return;
       const origin = req.headers.origin;
       const referer = req.headers.referer;
       const value = origin ?? referer;
@@ -112,6 +117,17 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(adminRoutes, { prefix: '' });
   void app.register(leadsRoutes, { prefix: '' });
   void app.register(commerceRoutes, { prefix: '' });
+  void app.register(whatsappWebhookRoutes, { prefix: '' });
+  void app.register(whatsappRoutes, { prefix: '' });
+
+  // Start the inbound outbox drainer unless explicitly disabled or in tests.
+  if (process.env.NODE_ENV !== 'test' && process.env.WHATSAPP_DRAINER_DISABLED !== 'true') {
+    startWhatsAppDrainer(app);
+  }
+
+  app.addHook('onClose', async () => {
+    stopWhatsAppDrainer(app);
+  });
 
   app.setNotFoundHandler((_req, reply) => {
     reply.code(404).send(errorEnvelope('NOT_FOUND', 'Route not found'));
