@@ -294,6 +294,92 @@ describe('templates', () => {
   });
 });
 
+describe('conversations', () => {
+  async function setupConversation(lastInboundAt?: Date) {
+    const channelRes = await createChannel(ownerToken);
+    const channel = channelRes.json().data.channel;
+    const conversation = await prisma.conversation.create({
+      data: {
+        businessId: bizA.id,
+        channelId: channel.id,
+        waContactId: '27821234567',
+        status: 'OPEN',
+        lastInboundAt: lastInboundAt ?? new Date(),
+      },
+    });
+    const message = await prisma.message.create({
+      data: {
+        businessId: bizA.id,
+        conversationId: conversation.id,
+        providerMessageId: 'wamid.read.1',
+        direction: 'INBOUND',
+        type: 'TEXT',
+        body: 'Hello merchant',
+        status: 'RECEIVED',
+        occurredAt: new Date(),
+      },
+    });
+    return { channel, conversation, message };
+  }
+
+  it('lists conversations', async () => {
+    const { conversation } = await setupConversation();
+    const r = await app.inject({
+      method: 'GET',
+      url: `/v1/businesses/${bizA.id}/whatsapp/conversations`,
+      headers: { cookie: `inyuku_at=${ownerToken}` },
+    });
+    expect(r.statusCode).toBe(200);
+    const ids = r.json().data.conversations.map((c: { id: string }) => c.id);
+    expect(ids).toContain(conversation.id);
+  });
+
+  it('detail includes windowState and windowExpiresAt', async () => {
+    const { conversation } = await setupConversation(new Date());
+    const r = await app.inject({
+      method: 'GET',
+      url: `/v1/businesses/${bizA.id}/whatsapp/conversations/${conversation.id}`,
+      headers: { cookie: `inyuku_at=${ownerToken}` },
+    });
+    expect(r.statusCode).toBe(200);
+    const body = r.json().data.conversation;
+    expect(body.windowState).toBe('OPEN');
+    expect(body.windowExpiresAt).toBeTruthy();
+  });
+
+  it('lists messages paginated', async () => {
+    const { conversation } = await setupConversation();
+    const r = await app.inject({
+      method: 'GET',
+      url: `/v1/businesses/${bizA.id}/whatsapp/conversations/${conversation.id}/messages`,
+      headers: { cookie: `inyuku_at=${ownerToken}` },
+    });
+    expect(r.statusCode).toBe(200);
+    expect(r.json().data.messages).toHaveLength(1);
+    expect(r.json().data.pagination.total).toBe(1);
+  });
+
+  it('cross-tenant conversation access denied', async () => {
+    const { conversation } = await setupConversation();
+    const r = await app.inject({
+      method: 'GET',
+      url: `/v1/businesses/${bizA.id}/whatsapp/conversations/${conversation.id}`,
+      headers: { cookie: `inyuku_at=${ownerTokenB}` },
+    });
+    expect(r.statusCode).toBe(403);
+  });
+
+  it('ai_agent can read conversations but not send', async () => {
+    const { conversation } = await setupConversation();
+    const read = await app.inject({
+      method: 'GET',
+      url: `/v1/businesses/${bizA.id}/whatsapp/conversations/${conversation.id}`,
+      headers: { cookie: `inyuku_at=${aiToken}` },
+    });
+    expect(read.statusCode).toBe(200);
+  });
+});
+
 describe('send', () => {
   it('transactional free-form inside window → 200/SENT', async () => {
     const { conversation } = await createSandboxChannelAndConversation(new Date());

@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { buildAuditContext } from '../../auth/auth.service.js';
 import { auditLog } from '../../utils/audit-logger.js';
 import { okEnvelope } from '../../utils/route-helpers.js';
+import { NotFoundError } from '../../utils/errors.js';
+import { prisma } from '../../db.js';
+import { windowState } from '../../services/whatsapp-window.js';
 import {
   listTemplates,
   createTemplate,
@@ -76,6 +79,11 @@ const SendMessageBody = z.object({
   language: z.string().optional(),
 });
 
+const ConversationListQuery = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
 export default async function whatsappRoutes(app: FastifyInstance) {
   // ─── Channels ───────────────────────────────────────────────────────────────
 
@@ -144,6 +152,69 @@ export default async function whatsappRoutes(app: FastifyInstance) {
   );
 
   // ─── Conversations / Messages ───────────────────────────────────────────────
+
+  app.get(
+    '/v1/businesses/:businessId/whatsapp/conversations',
+    {
+      preHandler: [app.authenticate, app.requirePermission({ permission: 'whatsapp:read' })],
+      schema: { querystring: ConversationListQuery },
+    },
+    async (req) => {
+      const { businessId } = req.params as BizParams;
+      const query = req.query as z.infer<typeof ConversationListQuery>;
+      const [conversations, total] = await Promise.all([
+        prisma.conversation.findMany({
+          where: { businessId },
+          orderBy: { lastInboundAt: 'desc' },
+          skip: (query.page - 1) * query.limit,
+          take: query.limit,
+        }),
+        prisma.conversation.count({ where: { businessId } }),
+      ]);
+      return okEnvelope({ conversations, pagination: { page: query.page, limit: query.limit, total } });
+    },
+  );
+
+  app.get(
+    '/v1/businesses/:businessId/whatsapp/conversations/:id',
+    { preHandler: [app.authenticate, app.requirePermission({ permission: 'whatsapp:read' })] },
+    async (req) => {
+      const { businessId, id } = req.params as ConversationParams;
+      const conversation = await prisma.conversation.findUnique({ where: { id } });
+      if (!conversation || conversation.businessId !== businessId) {
+        throw new NotFoundError('Conversation not found');
+      }
+      const now = new Date();
+      const { state, windowExpiresAt } = windowState(conversation.lastInboundAt, now);
+      return okEnvelope({ conversation: { ...conversation, windowState: state, windowExpiresAt } });
+    },
+  );
+
+  app.get(
+    '/v1/businesses/:businessId/whatsapp/conversations/:id/messages',
+    {
+      preHandler: [app.authenticate, app.requirePermission({ permission: 'whatsapp:read' })],
+      schema: { querystring: ConversationListQuery },
+    },
+    async (req) => {
+      const { businessId, id } = req.params as ConversationParams;
+      const query = req.query as z.infer<typeof ConversationListQuery>;
+      const conversation = await prisma.conversation.findUnique({ where: { id } });
+      if (!conversation || conversation.businessId !== businessId) {
+        throw new NotFoundError('Conversation not found');
+      }
+      const [messages, total] = await Promise.all([
+        prisma.message.findMany({
+          where: { businessId, conversationId: id },
+          orderBy: { occurredAt: 'desc' },
+          skip: (query.page - 1) * query.limit,
+          take: query.limit,
+        }),
+        prisma.message.count({ where: { businessId, conversationId: id } }),
+      ]);
+      return okEnvelope({ messages, pagination: { page: query.page, limit: query.limit, total } });
+    },
+  );
 
   app.post(
     '/v1/businesses/:businessId/whatsapp/conversations/:id/messages',
