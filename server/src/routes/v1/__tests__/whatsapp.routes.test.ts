@@ -595,6 +595,29 @@ describe('share-catalog', () => {
     expect(msg!.type).toBe('TEXT');
     expect(msg!.body).toContain('—');
   });
+
+  it('shared catalog text never contains a cost value (Condition 2)', async () => {
+    // product with a distinctive cost
+    const p = await prisma.product.create({ data: { businessId: bizA.id, clientId: `cs-${Date.now()}`, name: 'CostCheck', sellPriceCents: 9999, costPriceCents: 4242, status: 'ACTIVE' } });
+    await prisma.stockMovement.create({ data: { businessId: bizA.id, clientId: `csm-${Date.now()}`, productId: p.id, type: 'OPENING', qtyDelta: 5, occurredAt: new Date() } });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ messages: [{ id: 'wamid.costcheck' }] }),
+      text: async () => '',
+    } as Response);
+    const r = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/whatsapp/conversations/${convA.id}/share-catalog`,
+      headers: { ...authHeader(staffToken), 'content-type': 'application/json' },
+      payload: { sendClass: 'TRANSACTIONAL', productIds: [p.id] },
+    });
+    expect(r.statusCode).toBe(200);
+    const msg = await prisma.message.findFirst({ where: { conversationId: convA.id, direction: 'OUTBOUND' }, orderBy: { createdAt: 'desc' } });
+    expect(msg!.body).toContain('R99.99');
+    expect(msg!.body).not.toContain('42.42');
+    expect(msg!.body).not.toContain('4242');
+  });
 });
 
 describe('auto-reply rule CRUD', () => {
