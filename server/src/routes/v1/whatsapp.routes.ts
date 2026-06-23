@@ -14,10 +14,12 @@ import {
   createChannel,
   updateChannel,
 } from '../../services/whatsapp-channel.service.js';
+import { sendWhatsAppMessage } from '../../services/whatsapp-send.service.js';
 
 type BizParams = { businessId: string };
 type ChannelParams = { businessId: string; id: string };
 type TemplateParams = { businessId: string; id: string };
+type ConversationParams = { businessId: string; id: string };
 
 const ChannelModeEnum = z.enum(['SANDBOX', 'LIVE']);
 
@@ -60,6 +62,18 @@ const UpdateTemplateBody = z.object({
   bodyText: z.string().min(1).optional(),
   paramSchema: z.array(ParamSpec).optional(),
   providerTemplateId: z.string().optional().nullable(),
+});
+
+const MessageTypeEnum = z.enum(['TEXT', 'TEMPLATE']);
+const SendClassEnum = z.enum(['TRANSACTIONAL', 'MARKETING']);
+
+const SendMessageBody = z.object({
+  type: MessageTypeEnum,
+  sendClass: SendClassEnum,
+  body: z.string().optional(),
+  templateName: z.string().optional(),
+  templateParams: z.record(z.unknown()).optional(),
+  language: z.string().optional(),
 });
 
 export default async function whatsappRoutes(app: FastifyInstance) {
@@ -126,6 +140,33 @@ export default async function whatsappRoutes(app: FastifyInstance) {
         },
       });
       return okEnvelope({ channel });
+    },
+  );
+
+  // ─── Conversations / Messages ───────────────────────────────────────────────
+
+  app.post(
+    '/v1/businesses/:businessId/whatsapp/conversations/:id/messages',
+    {
+      preHandler: [app.authenticate, app.requirePermission({ permission: 'whatsapp:send' })],
+      schema: { body: SendMessageBody },
+    },
+    async (req) => {
+      const { businessId, id } = req.params as ConversationParams;
+      const body = req.body as z.infer<typeof SendMessageBody>;
+      const result = await sendWhatsAppMessage(businessId, id, {
+        type: body.type,
+        sendClass: body.sendClass,
+        body: body.body ?? null,
+        templateName: body.templateName ?? null,
+        templateParams: body.templateParams ?? null,
+        language: body.language ?? null,
+      });
+
+      if (result.error) {
+        return okEnvelope({ message: result.message, error: result.error });
+      }
+      return okEnvelope({ message: result.message });
     },
   );
 

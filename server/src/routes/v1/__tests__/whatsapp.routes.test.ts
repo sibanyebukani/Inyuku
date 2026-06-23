@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import { buildApp } from '../../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../../db.js';
@@ -11,6 +11,7 @@ import {
   cleanupTestBusinesses,
 } from '../../../test-helpers.js';
 import whatsappRoutes from '../whatsapp.routes.js';
+import { setSetting } from '../../../services/settings.service.js';
 
 let app: FastifyInstance;
 let ownerUser: Awaited<ReturnType<typeof createTestUser>>;
@@ -70,9 +71,17 @@ beforeAll(async () => {
     email: ownerUserB.email,
     memberships: [{ businessId: bizB.id, role: 'MERCHANT_OWNER', permissions: [] }],
   });
+
+  await setSetting('dialog360.apiKey', 'test-bsp-key', { isSecret: true });
+  process.env.WHATSAPP_BSP_BASE_URL = 'https://test.360dialog.example';
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
+  await prisma.errorLog.deleteMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
+  await prisma.auditLog.deleteMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
+  await prisma.message.deleteMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
+  await prisma.conversation.deleteMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
   await prisma.whatsAppTemplate.deleteMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
   await prisma.whatsAppChannel.deleteMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
 });
@@ -110,6 +119,36 @@ async function createChannel(token: string, overrides: Record<string, unknown> =
       enabled: false,
       ...overrides,
     },
+  });
+}
+
+async function createSandboxChannelAndConversation(lastInboundAt?: Date) {
+  const channelRes = await createChannel(ownerToken, { mode: 'SANDBOX', enabled: false });
+  const channel = channelRes.json().data.channel;
+  const conversation = await prisma.conversation.create({
+    data: {
+      businessId: bizA.id,
+      channelId: channel.id,
+      waContactId: '27821234567',
+      status: 'OPEN',
+      lastInboundAt: lastInboundAt ?? new Date(),
+    },
+  });
+  return { channel, conversation };
+}
+
+async function grantConsent(purpose: string) {
+  await prisma.consent.create({
+    data: { businessId: bizA.id, purpose, status: 'GRANTED' },
+  });
+}
+
+async function sendMessageRequest(conversationId: string, token: string, payload: Record<string, unknown>) {
+  return app.inject({
+    method: 'POST',
+    url: `/v1/businesses/${bizA.id}/whatsapp/conversations/${conversationId}/messages`,
+    headers: authHeader(token),
+    payload,
   });
 }
 
@@ -252,5 +291,174 @@ describe('templates', () => {
       headers: { cookie: `inyuku_at=${ownerTokenB}` },
     });
     expect(r.statusCode).toBe(403);
+  });
+});
+
+describe('send', () => {
+  it('transactional free-form inside window → 200/SENT', async () => {
+    const { conversation } = await createSandboxChannelAndConversation(new Date());
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ messages: [{ id: 'wamid.out.1' }] }),
+      text: async () => '',
+    } as Response);
+
+    const r = await sendMessageRequest(conversation.id, ownerToken, {
+      type: 'TEXT',
+      sendClass: 'TRANSACTIONAL',
+      body: 'Your order is ready',
+    });
+
+    expect(r.statusCode).toBe(200);
+    expect(r.json().data.message.status).toBe('SENT');
+    expect(r.json().data.message.providerMessageId).toBe('wamid.out.1');
+  });
+
+  it('free-form while CLOSED → 409 whatsapp_window_closed', async () => {
+    const { conversation } = await createSandboxChannelAndConversation(
+      new Date(Date.now() - 25 * 60 * 60 * 1000),
+    );
+
+    const r = await sendMessageRequest(conversation.id, ownerToken, {
+      type: 'TEXT',
+      sendClass: 'TRANSACTIONAL',
+      body: 'Hello',
+    });
+
+    expect(r.statusCode).toBe(409);
+    expect(r.json()).toMatchObject({ ok: false, error: { code: 'whatsapp_window_closed' } });
+  });
+
+  it('approved template while CLOSED → 200/SENT', async () => {
+    const { conversation } = await createSandboxChannelAndConversation(
+      new Date(Date.now() - 25 * 60 * 60 * 1000),
+    );
+    await grantConsent('whatsapp:template');
+    await createTemplate(ownerToken, {
+      name: 'closed-window-template',
+      status: 'APPROVED',
+      bodyText: 'Hello {{1}}',
+      paramSchema: [{ name: '1', type: 'string' }],
+    });
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ messages: [{ id: 'wamid.tpl.1' }] }),
+      text: async () => '',
+    } as Response);
+
+    const r = await sendMessageRequest(conversation.id, ownerToken, {
+      type: 'TEMPLATE',
+      sendClass: 'MARKETING',
+      templateName: 'closed-window-template',
+      language: 'en',
+      templateParams: { '1': 'Friend' },
+    });
+
+    expect(r.statusCode).toBe(200);
+    expect(r.json().data.message.status).toBe('SENT');
+  });
+
+  it('missing sendClass → 400', async () => {
+    const { conversation } = await createSandboxChannelAndConversation();
+    const r = await sendMessageRequest(conversation.id, ownerToken, {
+      type: 'TEXT',
+      body: 'Hello',
+    });
+    expect(r.statusCode).toBe(400);
+  });
+
+  it('marketing without consent grant → 403 whatsapp_consent_denied', async () => {
+    const { conversation } = await createSandboxChannelAndConversation();
+    const r = await sendMessageRequest(conversation.id, ownerToken, {
+      type: 'TEXT',
+      sendClass: 'MARKETING',
+      body: 'Promo',
+    });
+    expect(r.statusCode).toBe(403);
+    expect(r.json()).toMatchObject({ ok: false, error: { code: 'FORBIDDEN' } });
+  });
+
+  it('LIVE + disabled → 422 whatsapp_channel_disabled', async () => {
+    const channelRes = await createChannel(ownerToken, { mode: 'LIVE', enabled: false });
+    const channel = channelRes.json().data.channel;
+    const conversation = await prisma.conversation.create({
+      data: {
+        businessId: bizA.id,
+        channelId: channel.id,
+        waContactId: '27821234567',
+        status: 'OPEN',
+        lastInboundAt: new Date(),
+      },
+    });
+
+    const r = await sendMessageRequest(conversation.id, ownerToken, {
+      type: 'TEXT',
+      sendClass: 'TRANSACTIONAL',
+      body: 'Hello',
+    });
+    expect(r.statusCode).toBe(422);
+    expect(r.json()).toMatchObject({ ok: false, error: { code: 'whatsapp_channel_disabled' } });
+  });
+
+  it('invalid template → 422 whatsapp_template_invalid', async () => {
+    const { conversation } = await createSandboxChannelAndConversation(
+      new Date(Date.now() - 25 * 60 * 60 * 1000),
+    );
+    await grantConsent('whatsapp:template');
+
+    const r = await sendMessageRequest(conversation.id, ownerToken, {
+      type: 'TEMPLATE',
+      sendClass: 'MARKETING',
+      templateName: 'nonexistent',
+      language: 'en',
+      templateParams: {},
+    });
+    expect(r.statusCode).toBe(422);
+    expect(r.json()).toMatchObject({ ok: false, error: { code: 'whatsapp_template_invalid' } });
+  });
+
+  it('BSP failure → Message FAILED + ErrorLog', async () => {
+    const { conversation } = await createSandboxChannelAndConversation();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: 'boom' }),
+      text: async () => 'boom',
+    } as Response);
+
+    const r = await sendMessageRequest(conversation.id, ownerToken, {
+      type: 'TEXT',
+      sendClass: 'TRANSACTIONAL',
+      body: 'Hello',
+    });
+
+    expect(r.statusCode).toBe(200);
+    expect(r.json().data.message.status).toBe('FAILED');
+    const logs = await prisma.errorLog.findMany({ where: { businessId: bizA.id } });
+    expect(logs).toHaveLength(1);
+  });
+
+  it('SEND audited with masked metadata', async () => {
+    const { conversation } = await createSandboxChannelAndConversation();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ messages: [{ id: 'wamid.audit' }] }),
+      text: async () => '',
+    } as Response);
+
+    await sendMessageRequest(conversation.id, ownerToken, {
+      type: 'TEXT',
+      sendClass: 'TRANSACTIONAL',
+      body: 'Hello',
+    });
+
+    const audits = await prisma.auditLog.findMany({
+      where: { entity: 'whatsapp_message', action: 'SEND', businessId: bizA.id },
+    });
+    expect(audits).toHaveLength(1);
   });
 });
