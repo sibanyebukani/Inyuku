@@ -26,6 +26,12 @@ type TemplateParams = { businessId: string; id: string };
 type ConversationParams = { businessId: string; id: string };
 type RuleParams = { businessId: string; id: string };
 
+async function assertChannelBelongsToBusiness(businessId: string, channelId: string | null | undefined) {
+  if (!channelId) return;
+  const ch = await prisma.whatsAppChannel.findFirst({ where: { id: channelId, businessId } });
+  if (!ch) throw new NotFoundError('Channel not found');
+}
+
 const ChannelModeEnum = z.enum(['SANDBOX', 'LIVE']);
 
 const CreateChannelBody = z.object({
@@ -318,6 +324,7 @@ export default async function whatsappRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { businessId } = req.params as BizParams;
       const body = req.body as z.infer<typeof AutoReplyRuleBody>;
+      await assertChannelBelongsToBusiness(businessId, body.channelId);
       const rule = await prisma.whatsAppAutoReplyRule.create({
         data: {
           businessId,
@@ -347,6 +354,7 @@ export default async function whatsappRoutes(app: FastifyInstance) {
       const existing = await prisma.whatsAppAutoReplyRule.findUnique({ where: { id } });
       if (!existing || existing.businessId !== businessId) throw new NotFoundError('Rule not found');
       const body = req.body as z.infer<typeof AutoReplyRulePatchBody>;
+      await assertChannelBelongsToBusiness(businessId, body.channelId);
       const rule = await prisma.whatsAppAutoReplyRule.update({ where: { id }, data: body });
       await auditLog({ ...buildAuditContext(req), userId: req.user!.sub, businessId, entity: 'whatsapp_auto_reply_rule', action: 'UPDATE', entityId: rule.id, changes: { enabled: { old: existing.enabled, new: rule.enabled } } });
       return okEnvelope({ rule });
