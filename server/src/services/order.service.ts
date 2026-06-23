@@ -1,6 +1,6 @@
 import { prisma } from '../db.js';
 import { Prisma } from '@prisma/client';
-import { ValidationError } from '../utils/errors.js';
+import { NotFoundError, ValidationError } from '../utils/errors.js';
 import type { Order, OrderLine } from '@prisma/client';
 
 export interface CreateOrderLineInput {
@@ -12,6 +12,7 @@ export interface CreateOrderInput {
   businessId: string;
   clientId: string;
   customerId?: string;
+  conversationId?: string;
   status?: 'DRAFT' | 'COMPLETED';
   channel?: 'IN_PERSON' | 'WHATSAPP' | 'ONLINE';
   paymentState?: 'PAID' | 'UNPAID';
@@ -33,6 +34,19 @@ export async function createOrder(input: CreateOrderInput): Promise<{ order: Ord
     include: { lines: true },
   });
   if (existing) return { order: existing, duplicate: true };
+
+  if (input.conversationId) {
+    const conv = await prisma.conversation.findUnique({ where: { id: input.conversationId } });
+    if (!conv || conv.businessId !== input.businessId) {
+      throw new NotFoundError('Conversation not found');
+    }
+  }
+  if (input.customerId) {
+    const cust = await prisma.customer.findUnique({ where: { id: input.customerId } });
+    if (!cust || cust.businessId !== input.businessId) {
+      throw new NotFoundError('Customer not found');
+    }
+  }
 
   const status = input.status ?? 'DRAFT';
   const occurredAt = input.occurredAt ?? new Date();
@@ -73,6 +87,7 @@ export async function createOrder(input: CreateOrderInput): Promise<{ order: Ord
         clientId: input.clientId,
         orderNumber,
         customerId: input.customerId ?? null,
+        conversationId: input.conversationId ?? null,
         status,
         channel: input.channel ?? 'IN_PERSON',
         paymentState: input.paymentState ?? 'PAID',
