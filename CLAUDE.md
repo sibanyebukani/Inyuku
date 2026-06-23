@@ -1,13 +1,14 @@
 # Inyuku Digital — Project Intelligence (CLAUDE.md)
 
-> **Last synced:** 2026-06-23 (Documentation Lead, post-M3-A merge; M0+M1+M2+M3-A merged).
+> **Last synced:** 2026-06-23 (Documentation Lead, post-M3-B design-freeze; M0+M1+M2+M3-A merged, M3-B contracts FROZEN).
 > This file reflects the **resolved** architecture. The roadmap's original "Clerk + Supabase" stack
 > **no longer applies** — see `docs/DECISIONS.md` and EA-ADR-014/015/016.
 > **Backend framework is Fastify 5 (TypeScript)** — EA-ADR-014 was **amended (2026-06-19)** and **EA-ADR-016**
 > added (the reference chassis is Fastify, not Express). The frozen M1 platform-foundation contracts, the
-> frozen **M2 Commerce Core** contracts, and the frozen **M3-A WhatsApp BSP plumbing** contracts now live in
-> `docs/API.md` + `docs/SCHEMA.md` (M2 source: `docs/specs/2026-06-21-m2-commerce-core-*`; M3-A source:
-> `docs/specs/2026-06-22-m3a-bsp-plumbing-contracts.md`).
+> frozen **M2 Commerce Core** contracts, the frozen **M3-A WhatsApp BSP plumbing** contracts, and the frozen
+> **M3-B Commerce-over-Chat** contracts now live in `docs/API.md` + `docs/SCHEMA.md` (M2 source:
+> `docs/specs/2026-06-21-m2-commerce-core-*`; M3-A source: `docs/specs/2026-06-22-m3a-bsp-plumbing-contracts.md`;
+> M3-B source: `docs/specs/2026-06-23-m3b-commerce-over-chat-*`).
 > **MVP scope (founder, 2026-06-23): MVP = WhatsApp commerce, NO payments** — M2 shop + M3 (A+B) WhatsApp
 > order capture with manual PAID/UNPAID; **M4 (TradeSafe) and M5 (AI) are deferred post-MVP; lending stays
 > deferred.**
@@ -27,8 +28,10 @@ digital payments (escrow), inventory & orders, a merchant dashboard, and an AI b
   (PR #11 / `e530574`) — signature-verified inbound webhook, durable Postgres outbox + drainer,
   `Conversation`/`Message` persistence, outbound send (free-form + template), 24h window tracking,
   approved-template registry, consent enforcement **stub** (default-deny), sub-processor **enable flag**
-  (default OFF, **ships DARK**). Backend only — no chat UI yet. **M3-B next** (commerce-over-chat + inbox
-  UI). **M4 (payments) / M5 (AI) deferred post-MVP** (MVP = WhatsApp commerce, no payments); lending
+  (default OFF, **ships DARK**). Backend only — no chat UI yet. **M3-B (commerce-over-chat + inbox UI) is
+  DESIGN COMPLETE: contracts FROZEN (2026-06-23), bukani-security STRIDE §8 APPROVED-WITH-CONDITIONS
+  (Conditions 1–9 baked; residual R1 documented) — ready for build; M3-B is the last MVP build milestone.**
+  **M4 (payments) / M5 (AI) deferred post-MVP** (MVP = WhatsApp commerce, no payments); lending
   deferred. See `docs/ROADMAP.md`.
 
 ## 2. Resolved stack (Option A — full portfolio reference-architecture snap)
@@ -109,6 +112,22 @@ digital payments (escrow), inventory & orders, a merchant dashboard, and an AI b
 - **PII** — raw `Message.body` + customer phone numbers are **never logged** (chassis `pii-mask`); audit
   tuples carry masked metadata only.
 
+**M3-B Commerce-over-Chat conventions (mandatory):**
+- **WhatsApp order capture is an ordinary M2 `Order`** — `channel = WHATSAPP` + nullable
+  `Order.conversationId` linkage FK; **no parallel order model, no new sync op.** Capture rides the existing
+  `clientId` / `POST .../sync` path (LWW-on-`occurredAt`). ADR-INY-021/024.
+- **Capture is tenant-isolated** — before writing `Order.conversationId` / `Order.customerId`, assert
+  `conversation.businessId === customer.businessId === route businessId` (else 403/404); the offline `sync`
+  order payload is validated with the **same typed Zod schema** as `POST /orders`. THREAT-MODEL §8 Cond 1/8.
+- **WhatsApp auto-replies are provably non-AI** — the deterministic rule evaluator (greeting / exact-keyword /
+  out-of-hours, SAST) **never imports or calls `lib/ai.js`** (enforced by a CI grep assertion); all four send
+  paths (reply / catalog-share / auto-reply / status-notify) flow through the single `sendWhatsAppMessage()`
+  consent + window + `enabled` gate (no side-door). ADR-INY-022; THREAT-MODEL §8 Cond 4/6/7.
+- **Catalog share is server-composed** plain ZAR-priced text (sell-price-only — `costPriceCents` never read;
+  RBAC hide-not-zero). ADR-INY-023.
+- **Per-customer consent revocation is DESIGNED-NOT-BUILT (residual R1)** — `assertConsentGranted(..., ctx)`
+  is customer-aware but ships default-deny-marketing; `Customer.consentId` stays nullable until the E2 ruling.
+
 **Baseline tables (Prisma):** User, RefreshToken, PasswordResetToken, PhoneOtp, Business, Membership,
 Permission, AuditLog, ErrorLog, Setting, Consent, ConsentRevocation, AiUsage, Lead.
 **M2 Commerce Core tables:** Product, StockMovement, Order, OrderLine, Customer, AnalyticsEvent
@@ -118,6 +137,9 @@ SyncOpStatus).
 (new enums: WhatsAppChannelMode, ConversationStatus, MessageDirection, MessageType, MessageStatus,
 SendClass, InboundEventStatus, TemplateCategory, TemplateStatus). New permissions: whatsapp:read,
 whatsapp:send, whatsapp:manage_channel.
+**M3-B Commerce-over-Chat tables:** WhatsAppAutoReplyRule (+ `Order.conversationId` nullable linkage FK on
+the existing `Order`) (new enums: AutoReplyTrigger, AutoReplyAction). New permission:
+whatsapp:manage_autoreply (owner-only).
 
 ## 4. Compliance posture
 
@@ -171,16 +193,18 @@ whatsapp:send, whatsapp:manage_channel.
 |---|---|
 | `CLAUDE.md` | This file — resolved stack, conventions, binding EA-ADRs. |
 | `docs/PERSONAS.md` | **Personas** — Nomsa (P0), Sipho (RBAC cost-split), Thandi (validation/seams). |
-| `docs/ROADMAP.md` | **Milestone status** — M0/M1/M2 merged, M3-A merged / M3-B next, M4/M5 deferred post-MVP, lending deferred; **MVP = WhatsApp commerce, no payments**. |
-| `docs/API.md` | **M1 + M2 + M3-A API contract** — envelope, auth/cookies/rotation, permission registry + role map, route lists (M1 + M2 commerce + M3-A WhatsApp webhook/channels/conversations/templates), sync envelope, `/v1/leads`, env + Settings. |
-| `docs/SCHEMA.md` | **M1 + M2 + M3-A Prisma schema** — table-by-table (incl. Product/StockMovement/Order/OrderLine/Customer/AnalyticsEvent + WhatsAppChannel/Conversation/Message/WhatsAppInboundEvent/WhatsAppTemplate), tenancy/money/idempotency conventions, enums, audit tuples. |
-| `docs/DECISIONS.md` | Inyuku ADR-001..007 + **ADR-INY-008..012** (M1) + **ADR-INY-013..016** (M2 commerce) + **ADR-INY-017..020** (M3-A WhatsApp; reference EA-ADR-014/015/016). |
-| `docs/POPIA.md` | Processing register (incl. Customer PII + PostHog + WhatsApp message/phone PII), §72 transfer log, sub-processors (PostHog + 360dialog), consent ledger, M2/M3 dependencies/gates, retention, lending boundary. |
-| `docs/THREAT-MODEL.md` | STRIDE for payments, AI agent, auth, PII storage, **M2 commerce (sync/RBAC/PII/PostHog)**, **M3-A WhatsApp webhook (signature/replay/tenant-routing/DoS/PII)** + sign-off gates. |
+| `docs/ROADMAP.md` | **Milestone status** — M0/M1/M2 merged, M3-A merged / **M3-B design complete (contracts FROZEN, ready for build)**, M4/M5 deferred post-MVP, lending deferred; **MVP = WhatsApp commerce, no payments**. |
+| `docs/API.md` | **M1 + M2 + M3-A + M3-B API contract** — envelope, auth/cookies/rotation, permission registry + role map, route lists (M1 + M2 commerce + M3-A WhatsApp webhook/channels/conversations/templates + M3-B share-catalog/auto-reply-rules + additive `channel`/`conversationId` on orders/sync), sync envelope, `/v1/leads`, env + Settings. |
+| `docs/SCHEMA.md` | **M1 + M2 + M3-A + M3-B Prisma schema** — table-by-table (incl. Product/StockMovement/Order/OrderLine/Customer/AnalyticsEvent + WhatsAppChannel/Conversation/Message/WhatsAppInboundEvent/WhatsAppTemplate + WhatsAppAutoReplyRule + `Order.conversationId`), tenancy/money/idempotency conventions, enums, audit tuples. |
+| `docs/DECISIONS.md` | Inyuku ADR-001..007 + **ADR-INY-008..012** (M1) + **ADR-INY-013..016** (M2 commerce) + **ADR-INY-017..020** (M3-A WhatsApp) + **ADR-INY-021..024** (M3-B commerce-over-chat; reference EA-ADR-014/015/016). |
+| `docs/POPIA.md` | Processing register (incl. Customer PII + PostHog + WhatsApp message/phone PII + Customer-from-`waContactId`), §72 transfer log, sub-processors (PostHog + 360dialog), consent ledger, M2/M3/M3-B dependencies/gates (R1 + E1–E4), retention, lending boundary. |
+| `docs/THREAT-MODEL.md` | STRIDE for payments, AI agent, auth, PII storage, **M2 commerce (sync/RBAC/PII/PostHog)**, **M3-A WhatsApp webhook (signature/replay/tenant-routing/DoS/PII)**, **M3-B commerce-over-chat (capture/linkage/auto-reply/consent/RBAC/PII §8 — APPROVED-WITH-CONDITIONS)** + sign-off gates. |
 | `docs/specs/2026-06-21-m2-commerce-core-product-brief.md` | M2 product brief (bukani-product). |
 | `docs/specs/2026-06-21-m2-commerce-core-contracts.md` | M2 frozen architect contracts (bukani-architect). |
 | `docs/specs/2026-06-22-m3-whatsapp-commerce-product-brief.md` | M3 WhatsApp product brief (bukani-product). |
 | `docs/specs/2026-06-22-m3a-bsp-plumbing-contracts.md` | M3-A frozen architect contracts (bukani-architect). |
+| `docs/specs/2026-06-23-m3b-commerce-over-chat-product-brief.md` | M3-B product brief (bukani-product) — 7 stories M3B-S1..S7. |
+| `docs/specs/2026-06-23-m3b-commerce-over-chat-contracts.md` | M3-B **FROZEN** architect contracts (bukani-architect; bukani-security APPROVED-WITH-CONDITIONS). |
 | `docs/superpowers/specs/2026-06-18-inyuku-full-platform-roadmap-design.md` | Program roadmap (stack rows now point to DECISIONS.md). |
 | `docs/superpowers/plans/2026-06-18-m0a-repository-foundation.md` | M0-A implementation plan. |
 | `docs/SDLC_ROADMAP.md` | **SUPERSEDED** — original-site tech-debt inventory only. |

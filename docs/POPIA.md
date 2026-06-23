@@ -39,6 +39,8 @@ Every processing activity below is tenant-scoped by `businessId` (ADR-005). Lawf
 | Payment / transaction | escrow transaction IDs, amounts (ZAR cents), allocations | Merchants + customers | Payment via TradeSafe escrow | Contract | Postgres + TradeSafe (card data never touches Inyuku) |
 | WhatsApp messages | session content via 360dialog | Customers | Channel commerce | Contract / consent for marketing templates | 360dialog + Postgres metadata |
 | WhatsApp conversation/message content (M3) | inbound/outbound **message bodies**, customer **phone number**, provider message/event ids, session-window state | WhatsApp customers (data subjects of the merchant) | WhatsApp commerce-over-chat (channel plumbing + order capture + notifications) | **Pending consent/responsible-party ruling** (§7b) — transactional vs marketing/template basis to be ruled; do NOT decide | Postgres (`Conversation`, `Message`) + **360dialog** (new sub-processor — gated, §3/§4/§7b) |
+| Customer created from WhatsApp (M3-B) | customer **phone number** (`waContactId`, E.164-normalised) → `Customer.phone`; placeholder name | WhatsApp customers (data subjects of the merchant) | Order capture from chat — links/creates a `Customer` so a WhatsApp sale lands in the commerce core (no re-typing) | Contract (transactional sale; distinct from *messaging* basis) — `Customer.consentId` stays **nullable** until the §7c/§7a ruling | Postgres (`Customer`) — PII-masked in all logs (§7c) |
+| WhatsApp auto-reply sends (M3-B) | deterministic outbound message body, masked customer id | WhatsApp customers | Automated greeting / keyword / out-of-hours replies — **rule-based, provably non-AI** | Same basis as the §7b WhatsApp send (transactional vs marketing branch; default-deny marketing) | Postgres (`Message`, `WhatsAppAutoReplyRule`) + 360dialog |
 | AI assistant prompts/outputs | merchant queries, generated reports | Merchants | AI Business Assistant | Contract; PII minimised in prompts | Claude via `lib/ai.js`; logged with PII redaction |
 | Verified-transaction analytics | aggregated transaction history | Merchants | **Internal merchant analytics only — NOT a credit score** (ADR-006) | Legitimate interest | Postgres (internal) |
 | Audit / error logs | actor, action, requestId (PII-masked) | Merchants/staff | Security, compliance | Legal obligation / legitimate interest | Postgres (`AuditLog`, `ErrorLog`) |
@@ -196,6 +198,57 @@ against the 360dialog sandbox with mocked webhooks and **no production PII**. Th
 > M3 must **not** introduce AI / `lib/ai.js` into the WhatsApp surface (rule-based replies only) — this keeps
 > the M3 conversational surface outside the EA-ADR-012 AI-autonomy/consent boundary until M5.
 
+## 7c. M3-B Commerce-over-Chat — new processing & gates
+
+M3-B is the milestone that turns **WhatsApp `Message` PII into commerce-core PII**: order capture from chat
+**creates a `Customer` from the conversation's `waContactId`** (the customer's phone number), and adds an
+**automated send path** (deterministic, provably-non-AI auto-replies). The frozen contract
+(`docs/specs/2026-06-23-m3b-commerce-over-chat-contracts.md`) builds **sandbox-only with zero production PII**;
+live messaging stays **DARK** behind `WhatsAppChannel.enabled`. New/extended register rows are in §2. The
+following are routed to **bukani-compliance** (mirroring §7a / §7b precedents); **the rulings are NOT invented
+here.** bukani-security's STRIDE entry for this surface is **APPROVED-WITH-CONDITIONS** (Conditions 1–9 baked;
+residual R1 documented) — `docs/THREAT-MODEL.md` §8.
+
+### New processing introduced by M3-B
+- **`Customer` created from `waContactId` (phone PII into the commerce core).** On capture, the phone number
+  is normalised (E.164) into `Customer.phone`; the create, the `(customer, CREATE)` / `(order, CREATE)` audit
+  `changes`, and every log line on the capture/auto-reply path are **PII-masked** (chassis `logger` +
+  `pii-mask`; STRIDE §8 Condition 3) — raw `waContactId` / phone / `Message.body` **never** logged.
+  `Customer.consentId` **stays nullable** — a *transactional sale* is a distinct lawful basis from *messaging*
+  the customer (it is **not** gated on a messaging-consent grant).
+- **Automated WhatsApp sends (auto-replies).** Deterministic greeting / keyword / out-of-hours replies that
+  flow through the **single** `sendWhatsAppMessage()` consent + window + `enabled` gate (no side-door); every
+  fire/suppress is audited (`(whatsapp_autoreply, FIRE)` / `SUPPRESSED`, masked). **Never AI** (no `lib/ai.js`;
+  CI grep assertion) — keeps the surface outside the EA-ADR-012 boundary.
+
+### Gates (founder / bukani-compliance — do NOT invent answers)
+
+- **E2 — Customer-directory / WhatsApp responsible-party ruling (GA-gate).** Already a tracked dependency
+  (§7a item 1 + §7b item 2) — **cross-referenced here, not duplicated.** It governs the §6 consent branch
+  policy and the per-customer revocation store (R1). M3-B builds under the **default-deny** stub;
+  `Customer.consentId` stays nullable until ruled.
+- **E3 — 360dialog sub-processor DPA / EU-pin / risk assessment (EA-ADR-015 extension).** The §7b item 1 / §3
+  gate applies unchanged to M3-B. **No production WhatsApp PII** (inbound, outbound, or captured customer)
+  until the DPA + EU-pin + bukani-compliance risk assessment clear; live ships DARK behind
+  `WhatsAppChannel.enabled`.
+- **E4 — Message → Order/Customer retention (§6 TBD).** Because M3-B turns `Message` PII into durable `Order` /
+  `Customer` PII, the retention question extends to the captured records. The **seam is the
+  `whatsapp.message.retentionDays` Setting** (M3-A; unset → no purge); the **period is TBD** with
+  bukani-compliance — **must be a config value, not hard-coded.**
+
+### Residual risk R1 (consciously accepted — GA blocker)
+
+**R1 — per-customer revocation (S6/AC3) is DESIGNED-NOT-BUILT in M3-B.** The data-model **seam** that scopes a
+revocation to one WhatsApp customer (the per-customer `Consent` row `Customer.consentId` points at) is
+specified, but the **per-customer revocation store is deferred** until E2 lands. M3-B ships
+**default-deny-marketing** for the sandbox slice (no marketing to anyone without a grant), so R1 is a
+*missing-capability* risk, **not a leak** risk. It **resolves when the store lands with the E2 ruling** — a
+**GA blocker, not an M3-B sandbox-build blocker**. Full acceptance + model sketch: contracts §6.1a /
+THREAT-MODEL §8. **Do not add a built per-customer-consent table in M3-B.**
+
+> Cost ceiling **E1** (per-tenant WhatsApp conversation spend cap + kill switch) is a **founder / EA** gate
+> (analogous to the EA-ADR-011 R3,000/mo AI ceiling), not a POPIA item — tracked in THREAT-MODEL §8 + §9.
+
 ## 8. PCI scope
 
 Card data **never touches Inyuku** — payments run through the **TradeSafe-hosted gateway**, putting Inyuku in
@@ -224,3 +277,9 @@ Card data **never touches Inyuku** — payments run through the **TradeSafe-host
   production messaging; must be a config value (§7b).
 - **(M3) Customer-facing data-subject / PAIA notice wording for WhatsApp** — dependent on the M3
   responsible-party ruling (§7b).
+- **(M3-B) Per-customer revocation store — residual R1 (GA blocker).** DESIGNED-NOT-BUILT in M3-B; ships
+  default-deny-marketing. Resolves when the store lands with the E2 responsible-party ruling (§7c).
+- **(M3-B) Message → Order/Customer retention (E4)** — extends the §6/§7b retention TBD to the captured
+  `Order`/`Customer` records; seam = `whatsapp.message.retentionDays` Setting; period TBD (§7c).
+- **(M3-B) Per-tenant WhatsApp conversation cost ceiling + kill switch (E1)** — founder / EA gate (not POPIA;
+  analogous to the EA-ADR-011 AI ceiling) — tracked in THREAT-MODEL §8/§9.

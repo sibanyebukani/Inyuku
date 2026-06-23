@@ -144,16 +144,17 @@ one business does not grant access to another (cross-tenant → 403/404). The `A
 | `whatsapp:read` *(M3-A)* | Read WhatsApp channels, conversations, messages, templates |
 | `whatsapp:send` *(M3-A)* | Send a WhatsApp message (free-form/template), subject to window + consent + enable gates |
 | `whatsapp:manage_channel` *(M3-A)* | **Owner-only** — provision/configure `WhatsAppChannel` (incl. `enabled` / `mode`) + manage the template registry |
+| `whatsapp:manage_autoreply` *(M3-B)* | **Owner-only** — create/update/delete `WhatsAppAutoReplyRule` (the canned greeting/keyword/out-of-hours auto-reply config) |
 
 ### Role map (defaults)
 
 | Role | Default posture |
 |---|---|
-| `MERCHANT_OWNER` | Full tenant control: `business:*`, `member:*`, `settings:read/update`, `audit:read`, `consent:*`, `ai:invoke`, `ai:usage:read`. **M2:** all `catalog:*` (incl. `catalog:read_cost`), `inventory:*`, `order:*`, `customer:*`, `dashboard:read` + `dashboard:read_financial`, `sync:write`. **M3-A:** `whatsapp:read`, `whatsapp:send`, `whatsapp:manage_channel` (all three). (`settings:read_secret` explicit-grant.) |
-| `MERCHANT_STAFF` | Operational subset: `business:read`, `member:read`, `settings:read`, `consent:read`, `ai:invoke`. **M2:** all commerce permissions **EXCEPT** `catalog:read_cost` and `dashboard:read_financial` — i.e. `catalog:read/write`, `inventory:read/write`, `order:read/write`, `customer:read/write`, `dashboard:read`, `sync:write`. (Sipho cannot see cost / margin / financial totals.) **M3-A:** `whatsapp:read` + `whatsapp:send` (operates the conversation), **NOT** `whatsapp:manage_channel` (owner configures the channel/template/enable-flag — mirrors the M2 cost-split: staff operate, owner configures). |
+| `MERCHANT_OWNER` | Full tenant control: `business:*`, `member:*`, `settings:read/update`, `audit:read`, `consent:*`, `ai:invoke`, `ai:usage:read`. **M2:** all `catalog:*` (incl. `catalog:read_cost`), `inventory:*`, `order:*`, `customer:*`, `dashboard:read` + `dashboard:read_financial`, `sync:write`. **M3-A:** `whatsapp:read`, `whatsapp:send`, `whatsapp:manage_channel` (all three). **M3-B:** `whatsapp:manage_autoreply` (owner-only). (`settings:read_secret` explicit-grant.) |
+| `MERCHANT_STAFF` | Operational subset: `business:read`, `member:read`, `settings:read`, `consent:read`, `ai:invoke`. **M2:** all commerce permissions **EXCEPT** `catalog:read_cost` and `dashboard:read_financial` — i.e. `catalog:read/write`, `inventory:read/write`, `order:read/write`, `customer:read/write`, `dashboard:read`, `sync:write`. (Sipho cannot see cost / margin / financial totals.) **M3-A:** `whatsapp:read` + `whatsapp:send` (operates the conversation), **NOT** `whatsapp:manage_channel` (owner configures the channel/template/enable-flag — mirrors the M2 cost-split: staff operate, owner configures). **M3-B:** captures WhatsApp orders (`order:write` + `sync:write`), shares the catalog and sends status notifications (`whatsapp:send`), and **sees** auto-reply rules fire (`whatsapp:read`), but **NOT** `whatsapp:manage_autoreply` (owner configures auto-replies — same staff-operate / owner-configure split). |
 | `ADMIN` | Platform admin: `platform:business:read/suspend`, `lead:read/update`, `audit:read`, plus tenant reads as scoped. No per-tenant WhatsApp send. |
 | `SUPPORT` | Read-mostly platform support: `platform:business:read`, `lead:read`, `audit:read`. |
-| `AI_AGENT` | Read + `ai:invoke` only — **no writes** (EA-ADR-012). **M2:** read-only commerce — `catalog:read`, `inventory:read`, `order:read`, `customer:read`, `dashboard:read`. **No** `catalog:read_cost`, `dashboard:read_financial`, `sync:write`, or any `*:write`. **M3-A:** `whatsapp:read` only — **no** `whatsapp:send` / `whatsapp:manage_channel` (M3 has no AI on the WhatsApp surface — rule-based only; keeps the principal least-privilege for M5). |
+| `AI_AGENT` | Read + `ai:invoke` only — **no writes** (EA-ADR-012). **M2:** read-only commerce — `catalog:read`, `inventory:read`, `order:read`, `customer:read`, `dashboard:read`. **No** `catalog:read_cost`, `dashboard:read_financial`, `sync:write`, or any `*:write`. **M3-A:** `whatsapp:read` only — **no** `whatsapp:send` / `whatsapp:manage_channel` (M3 has no AI on the WhatsApp surface — rule-based only; keeps the principal least-privilege for M5). **M3-B:** unchanged — **no** `whatsapp:manage_autoreply`, no capture, no send (auto-replies are deterministic and never call `lib/ai.js`; the AI principal stays read-only on this surface). |
 
 > The role defaults above are the documented baseline; the authoritative defaults map ships in code with the
 > permission registry. Explicit `Membership.permissions[]` entries are unioned on top.
@@ -285,6 +286,35 @@ no-op), `CONFLICT` (lost the last-writer-wins compare), `REJECTED` (validation/p
 | 400 | VALIDATION_ERROR | Malformed batch / > 100 ops |
 | 403 | FORBIDDEN | Missing `sync:write` / cross-tenant |
 
+### M3-B additive fields on `POST /orders` and the sync order-create op
+
+M3-B captures a WhatsApp order as an **ordinary M2 `Order`** — **no new capture endpoint, no new sync op,
+no parallel order model** (ADR-INY-024). Both the online `POST /orders` body and the offline `sync`
+`entity:"order"` / `op:"create"` `payload` gain **two optional, additive, back-compatible** fields:
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `channel` | enum | No | `IN_PERSON` (default) / `WHATSAPP` / `ONLINE` — a WhatsApp capture sets `WHATSAPP` |
+| `conversationId` | string | No | The Conversation→Order linkage seam (SCHEMA `Order.conversationId`); set only for `WHATSAPP` captures |
+
+- When `channel`/`conversationId` are omitted the M2 `IN_PERSON` path is **unchanged**.
+- **Tenant isolation (STRIDE §8 Condition 1):** when `conversationId` and/or `customerId` are present, the
+  handler MUST load each and reject **403/404** unless `conversation.businessId === customer.businessId ===
+  route businessId` **before any write** — never write a cross-tenant link. This applies identically to the
+  online and the offline `sync` paths.
+- **Customer link/create:** if `customerId` is omitted **and** `conversationId` is supplied, the order
+  service resolves/creates the M2 `Customer` from the conversation's `waContactId` (E.164-normalised),
+  links it, and back-links `Conversation.customerId` if null. `Customer.consentId` **stays nullable** —
+  capturing a transactional sale is not gated on a messaging-consent grant.
+- **Typed sync payload (STRIDE §8 Condition 8):** the `sync` order-create op MUST validate its `payload`
+  with the **same typed Zod schema as the online `POST /orders` body** (incl. the new optional `channel` /
+  `conversationId`) before it reaches `createOrder` — the `z.record(z.unknown())` passthrough is **forbidden
+  for the order op**. A payload that fails validation returns that op's status as a per-op failure **without
+  failing the batch** (per-op partial-success preserved).
+- **Convergence:** `@@unique([businessId, clientId])` on `Order` + LWW-on-`occurredAt` (ADR-INY-016) means a
+  capture submitted online then re-submitted on reconnect resolves to `DUPLICATE` — exactly once, never
+  duplicated. SALE `StockMovement`s inherit idempotency via their deterministic per-order `clientId`.
+
 ---
 
 ## Route list (M3-A — WhatsApp BSP plumbing)
@@ -378,6 +408,69 @@ window.
 | 422 | `whatsapp_template_invalid` | Template not `APPROVED`, unregistered, or `templateParams` don't satisfy `paramSchema` |
 | 422 | `whatsapp_channel_disabled` | `LIVE` channel with `enabled = false` (sub-processor enable flag) |
 | 403 | `whatsapp_consent_denied` | Non-transactional / template send without a recorded consent grant (default-deny stub) |
+
+---
+
+## Route list (M3-B — Commerce over Chat)
+
+> Source: `docs/specs/2026-06-23-m3b-commerce-over-chat-contracts.md` (**FROZEN**; bukani-security
+> APPROVED-WITH-CONDITIONS, 2026-06-23). M3-B is **thin on new routes** — most value is UI over the frozen
+> M3-A read/send surface + the M2 order/sync paths. **S1 (inbox read), S2 (free-form reply), S7 (status
+> notification) add NO new routes** — they are UI over the M3-A `GET …/conversations*` reads and the M3-A
+> `POST …/conversations/:id/messages` send (which already auto-picks free-form vs template by window).
+
+All routes are tenant-scoped under `/v1/businesses/:businessId/whatsapp/*` and require an access cookie + RBAC.
+
+| Method | Path | Permission | Audit |
+|---|---|---|---|
+| POST | `/whatsapp/conversations/:id/share-catalog` | `whatsapp:send` | `(whatsapp_message, SEND)` — composes catalog text from M2 `Product` (sell price only), then dispatches via the single M3-A send |
+| GET | `/whatsapp/auto-reply-rules` | `whatsapp:read` | — (staff can **see** rules + that they fired, not edit) |
+| POST | `/whatsapp/auto-reply-rules` | `whatsapp:manage_autoreply` | `(whatsapp_autoreply_rule, CREATE)` |
+| PATCH | `/whatsapp/auto-reply-rules/:id` | `whatsapp:manage_autoreply` | `(whatsapp_autoreply_rule, UPDATE)` |
+| DELETE | `/whatsapp/auto-reply-rules/:id` | `whatsapp:manage_autoreply` | `(whatsapp_autoreply_rule, DELETE)` |
+
+(Order capture rides the existing `POST /orders` + `POST /sync` paths — see *M3-B additive fields* above.)
+
+### Catalog share — `POST /whatsapp/conversations/:id/share-catalog`
+
+A **server-composed, plain ZAR-priced text list** sent via the **single M3-A send choke-point** (ADR-INY-023).
+The merchant taps once; the server composes the message from the **live M2 catalog** so no price/RBAC logic
+leaks to the client.
+
+**Request body**
+```json
+{
+  "productIds": ["prod_…", "prod_…"],
+  "sendClass": "TRANSACTIONAL"
+}
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `productIds` | string[] | No | Optional subset; omit = all `ACTIVE` products |
+| `sendClass` | `SendClass` | Yes | Sharing in reply to an enquiry inside the window is `TRANSACTIONAL` |
+
+- **Source = live M2 catalog**, filtered to `status = ACTIVE` (archived excluded). **Out-of-stock**
+  (`SUM(qtyDelta) <= 0`) is **included but flagged** `"(out of stock)"`.
+- **`costPriceCents` is NEVER read** (STRIDE §8 Condition 2): a sell-price-only query — cost/margin absent
+  **by omission, never zeroed**. The composed string formats cents to `R{rands}.{cc}` (the wire/UI stays cents).
+- **Single send choke-point** (STRIDE §8 Condition 4): dispatched through `sendWhatsAppMessage()` →
+  `assertConsentGranted` + window-selection + `WhatsAppChannel.enabled`. Returns the **identical send
+  envelope** as `POST …/messages` (the queued `Message`, or `409` / `422` / `403`).
+
+### Auto-reply rules — `…/whatsapp/auto-reply-rules`
+
+Owner-configured (`whatsapp:manage_autoreply`), staff-visible (`whatsapp:read`) deterministic rules
+(`WhatsAppAutoReplyRule`, SCHEMA). Auto-replies are **provably non-AI** — the evaluator never imports/calls
+`lib/ai.js` (CI grep assertion; STRIDE §8 Condition 6c) — and every fire/suppress is audited
+(`(whatsapp_autoreply, FIRE)` / `(whatsapp_autoreply, SUPPRESSED)`, masked).
+
+**Create/update validation:** `KEYWORD` requires `keyword`; `OUT_OF_HOURS` requires `hoursStart`+`hoursEnd`
+(valid `HH:mm`, evaluated in **SAST / `Africa/Johannesburg`**); `SEND_TEXT` requires `replyText`;
+`SHARE_CATALOG` reuses the share-catalog composition. Rules ship `enabled = false` (opt-in). The evaluator
+fires only on a genuine inbound (`direction = INBOUND`, `type ∈ {TEXT, INTERACTIVE}`) and enforces
+`cooldownMinutes` / once-per-period from the ledger (STRIDE §8 Condition 7); every send still flows through
+the single `sendWhatsAppMessage()` gate (Condition 4).
 
 ---
 
