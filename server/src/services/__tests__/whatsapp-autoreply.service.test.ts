@@ -53,4 +53,25 @@ describe('evaluateAutoReplies', () => {
     expect(supp).toBeTruthy();
     spy.mockRestore();
   });
+
+  it('cooldown is per-rule, not per-trigger', async () => {
+    const spy = vi.spyOn(sendSvc, 'sendWhatsAppMessage').mockResolvedValue({ message: {} } as any);
+
+    const ruleA = await prisma.whatsAppAutoReplyRule.create({
+      data: { businessId: biz.id, trigger: 'KEYWORD', keyword: 'deal', action: 'SEND_TEXT', replyText: 'A', enabled: true, cooldownMinutes: 60 },
+    });
+    const ruleB = await prisma.whatsAppAutoReplyRule.create({
+      data: { businessId: biz.id, trigger: 'KEYWORD', keyword: 'offer', action: 'SEND_TEXT', replyText: 'B', enabled: true, cooldownMinutes: 60 },
+    });
+
+    await evaluateAutoReplies(biz.id, conv, inbound('deal'));
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    // rule B must still fire even though a rule A FIRE exists for the same trigger type
+    await evaluateAutoReplies(biz.id, conv, inbound('offer'));
+    expect(spy).toHaveBeenCalledTimes(2);
+
+    await prisma.whatsAppAutoReplyRule.deleteMany({ where: { id: { in: [ruleA.id, ruleB.id] } } });
+    spy.mockRestore();
+  });
 });

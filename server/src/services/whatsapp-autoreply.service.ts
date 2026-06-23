@@ -42,13 +42,13 @@ function matchesTrigger(rule: WhatsAppAutoReplyRule, message: Message, now: Date
   return false;
 }
 
-async function inCooldown(conversationId: string, trigger: string, cooldownMinutes: number, now: Date): Promise<boolean> {
+async function inCooldown(conversationId: string, ruleId: string, cooldownMinutes: number, now: Date): Promise<boolean> {
   if (cooldownMinutes <= 0) return false;
   const since = new Date(now.getTime() - cooldownMinutes * 60_000);
   const prior = await prisma.auditLog.findFirst({
     where: {
       entity: 'whatsapp_autoreply', action: 'FIRE', entityId: conversationId, createdAt: { gte: since },
-      changes: { path: ['trigger', 'new'], equals: trigger },
+      changes: { path: ['ruleId', 'new'], equals: ruleId },
     },
   });
   return !!prior;
@@ -68,17 +68,17 @@ export async function evaluateAutoReplies(businessId: string, conversation: Conv
   for (const rule of rules) {
     if (!matchesTrigger(rule, message, now)) continue;
 
-    if (await inCooldown(conversation.id, rule.trigger, rule.cooldownMinutes, now)) {
-      await auditLog({ businessId, entity: 'whatsapp_autoreply', action: 'SUPPRESSED', entityId: conversation.id, changes: { trigger: { old: null, new: rule.trigger }, reason: { old: null, new: 'cooldown' } } });
+    if (await inCooldown(conversation.id, rule.id, rule.cooldownMinutes, now)) {
+      await auditLog({ businessId, entity: 'whatsapp_autoreply', action: 'SUPPRESSED', entityId: conversation.id, changes: { ruleId: { old: null, new: rule.id }, trigger: { old: null, new: rule.trigger }, reason: { old: null, new: 'cooldown' } } });
       continue;
     }
 
     const text = rule.action === 'SHARE_CATALOG' ? await composeCatalogText(businessId) : (rule.replyText ?? '');
     try {
       await sendWhatsAppMessage(businessId, conversation.id, { type: 'TEXT', sendClass: 'TRANSACTIONAL', body: text });
-      await auditLog({ businessId, entity: 'whatsapp_autoreply', action: 'FIRE', entityId: conversation.id, changes: { trigger: { old: null, new: rule.trigger }, action: { old: null, new: rule.action } } });
+      await auditLog({ businessId, entity: 'whatsapp_autoreply', action: 'FIRE', entityId: conversation.id, changes: { ruleId: { old: null, new: rule.id }, trigger: { old: null, new: rule.trigger }, action: { old: null, new: rule.action } } });
     } catch {
-      await auditLog({ businessId, entity: 'whatsapp_autoreply', action: 'SUPPRESSED', entityId: conversation.id, changes: { trigger: { old: null, new: rule.trigger }, reason: { old: null, new: 'send_error' } } });
+      await auditLog({ businessId, entity: 'whatsapp_autoreply', action: 'SUPPRESSED', entityId: conversation.id, changes: { ruleId: { old: null, new: rule.id }, trigger: { old: null, new: rule.trigger }, reason: { old: null, new: 'send_error' } } });
     }
   }
 }
