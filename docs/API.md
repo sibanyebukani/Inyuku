@@ -340,6 +340,9 @@ no-op), `CONFLICT` (lost the last-writer-wins compare), `REJECTED` (validation/p
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry export |
 | `GIT_COMMIT_SHA` | Build provenance (stamped on `ErrorLog`) |
 | `NEXT_PUBLIC_API_BASE_URL` | Frontend → API base URL |
+| `WHATSAPP_BSP_BASE_URL` | 360dialog WABA API base URL (M3-A) |
+| `WHATSAPP_INBOUND_DRAIN_INTERVAL_MS` | Outbox drainer sweep interval (M3-A) |
+| `WHATSAPP_DRAINER_DISABLED` | Set `true` to kill the inbound drainer (M3-A) |
 
 ### DB-backed Settings (encrypted when `isSecret`)
 
@@ -359,3 +362,6 @@ encrypted (`enc:v1:` prefix) and masked unless the caller holds `settings:read_s
 | `tradesafe.clientId` | Yes | TradeSafe (M4) |
 | `tradesafe.clientSecret` | Yes | TradeSafe (M4) |
 | `dialog360.apiKey` | Yes | 360dialog WhatsApp (M3) |
+| `whatsapp.webhook.appSecret` | Yes | WhatsApp webhook HMAC secret (M3-A) |
+| `whatsapp.webhook.verifyToken` | Yes | Meta/360dialog hub verify token (M3-A) |
+| `whatsapp.message.retentionDays` | No | Inbound message retention policy (M3-A) |
