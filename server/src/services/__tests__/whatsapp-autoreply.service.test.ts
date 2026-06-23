@@ -74,4 +74,37 @@ describe('evaluateAutoReplies', () => {
     await prisma.whatsAppAutoReplyRule.deleteMany({ where: { id: { in: [ruleA.id, ruleB.id] } } });
     spy.mockRestore();
   });
+
+  it('suppresses on send error, emits no FIRE, and does not start cooldown', async () => {
+    const rule = await prisma.whatsAppAutoReplyRule.create({
+      data: { businessId: biz.id, trigger: 'KEYWORD', keyword: 'sendfail', action: 'SEND_TEXT', replyText: 'x', enabled: true, cooldownMinutes: 60 },
+    });
+    const spy = vi.spyOn(sendSvc, 'sendWhatsAppMessage').mockResolvedValue({ error: 'send_failed' } as any);
+
+    await evaluateAutoReplies(biz.id, conv, inbound('sendfail'));
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    const supp = await prisma.auditLog.findFirst({
+      where: {
+        businessId: biz.id, entity: 'whatsapp_autoreply', action: 'SUPPRESSED', entityId: conv.id,
+        changes: { path: ['reason', 'new'], equals: 'send_error' },
+      },
+    });
+    expect(supp).toBeTruthy();
+
+    const fire = await prisma.auditLog.findFirst({
+      where: {
+        businessId: biz.id, entity: 'whatsapp_autoreply', action: 'FIRE', entityId: conv.id,
+        changes: { path: ['ruleId', 'new'], equals: rule.id },
+      },
+    });
+    expect(fire).toBeFalsy();
+
+    // a second inbound must retry because no cooldown was started
+    await evaluateAutoReplies(biz.id, conv, inbound('sendfail'));
+    expect(spy).toHaveBeenCalledTimes(2);
+
+    await prisma.whatsAppAutoReplyRule.deleteMany({ where: { id: rule.id } });
+    spy.mockRestore();
+  });
 });

@@ -75,10 +75,14 @@ export async function evaluateAutoReplies(businessId: string, conversation: Conv
 
     const text = rule.action === 'SHARE_CATALOG' ? await composeCatalogText(businessId) : (rule.replyText ?? '');
     try {
-      await sendWhatsAppMessage(businessId, conversation.id, { type: 'TEXT', sendClass: 'TRANSACTIONAL', body: text });
+      const result = await sendWhatsAppMessage(businessId, conversation.id, { type: 'TEXT', sendClass: 'TRANSACTIONAL', body: text });
+      if (result.error) {
+        await auditLog({ businessId, entity: 'whatsapp_autoreply', action: 'SUPPRESSED', entityId: conversation.id, changes: { ruleId: { old: null, new: rule.id }, trigger: { old: null, new: rule.trigger }, reason: { old: null, new: 'send_error' } } });
+        continue;
+      }
       await auditLog({ businessId, entity: 'whatsapp_autoreply', action: 'FIRE', entityId: conversation.id, changes: { ruleId: { old: null, new: rule.id }, trigger: { old: null, new: rule.trigger }, action: { old: null, new: rule.action } } });
     } catch {
-      await auditLog({ businessId, entity: 'whatsapp_autoreply', action: 'SUPPRESSED', entityId: conversation.id, changes: { ruleId: { old: null, new: rule.id }, trigger: { old: null, new: rule.trigger }, reason: { old: null, new: 'send_error' } } });
+      await auditLog({ businessId, entity: 'whatsapp_autoreply', action: 'SUPPRESSED', entityId: conversation.id, changes: { ruleId: { old: null, new: rule.id }, trigger: { old: null, new: rule.trigger }, reason: { old: null, new: 'send_blocked' } } });
     }
   }
 }
