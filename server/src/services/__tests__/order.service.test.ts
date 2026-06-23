@@ -141,4 +141,30 @@ describe('createOrder customer link/create from conversation (§5.2)', () => {
     });
     expect(order.customerId).toBeNull();
   });
+
+  it('is idempotent when two captures race for the same fresh conversation and stores normalised phone', async () => {
+    const channel = await prisma.whatsAppChannel.create({
+      data: { businessId: bizA.id, phoneNumberId: `pn-race-${Date.now()}`, displayPhoneNumber: '+27820004444', mode: 'SANDBOX', enabled: false } as any,
+    });
+    const conv = await prisma.conversation.create({
+      data: { businessId: bizA.id, channelId: channel.id, waContactId: '0820004444' },
+    });
+
+    const [first, second] = await Promise.all([
+      createOrder({
+        businessId: bizA.id, clientId: `race-1-${Date.now()}`, channel: 'WHATSAPP', conversationId: conv.id,
+        lines: [{ productId: productA.id, qty: 1 }],
+      }),
+      createOrder({
+        businessId: bizA.id, clientId: `race-2-${Date.now()}`, channel: 'WHATSAPP', conversationId: conv.id,
+        lines: [{ productId: productA.id, qty: 1 }],
+      }),
+    ]);
+
+    const customers = await prisma.customer.findMany({ where: { businessId: bizA.id, clientId: `wa:${conv.id}` } });
+    expect(customers).toHaveLength(1);
+    expect(first.order.customerId).toBe(customers[0].id);
+    expect(second.order.customerId).toBe(customers[0].id);
+    expect(customers[0].phone).toBe('+27820004444');
+  });
 });

@@ -40,16 +40,18 @@ async function resolveCustomerFromConversation(
   if (match) {
     customerId = match.id;
   } else {
-    const created = await tx.customer.create({
-      data: {
+    const upserted = await tx.customer.upsert({
+      where: { businessId_clientId: { businessId, clientId: `wa:${conversationId}` } },
+      create: {
         businessId,
         clientId: `wa:${conversationId}`,
         name: `WhatsApp ${maskMsisdn(conv.waContactId)}`,
-        phone: conv.waContactId,
+        phone: normalizeMsisdn(conv.waContactId),
         consentId: null,
       },
+      update: {},
     });
-    customerId = created.id;
+    customerId = upserted.id;
   }
   if (!conv.customerId) {
     await tx.conversation.update({ where: { id: conversationId }, data: { customerId } });
