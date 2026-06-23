@@ -19,7 +19,12 @@ export type AuditAction =
   | 'REMOVE'
   | 'REVOKE'
   | 'SUSPEND'
-  | 'INVOKE';
+  | 'INVOKE'
+  // M3-A WhatsApp BSP plumbing
+  | 'RECEIVE'
+  | 'SEND'
+  | 'VERIFY_FAILED'
+  | 'UNROUTED';
 
 export interface AuditLogInput {
   userId?: string | null;

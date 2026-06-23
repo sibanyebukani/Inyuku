@@ -14,6 +14,8 @@ declare module 'fastify' {
     user?: AccessClaims;
     auditCtx: AuditContext;
     membership?: Membership & { business: Business };
+    /** Set only on the WhatsApp webhook route, where raw-body capture is scoped. */
+    rawBody?: Buffer;
   }
 
   interface FastifyInstance {

@@ -59,6 +59,25 @@ describe('permissions', () => {
     expect(hasPermission('AI_AGENT', [], 'dashboard:read')).toBe(true);
   });
 
+  // M3-A WhatsApp BSP plumbing RBAC
+  it('owner has all whatsapp permissions', () => {
+    expect(hasPermission('MERCHANT_OWNER', [], 'whatsapp:read')).toBe(true);
+    expect(hasPermission('MERCHANT_OWNER', [], 'whatsapp:send')).toBe(true);
+    expect(hasPermission('MERCHANT_OWNER', [], 'whatsapp:manage_channel')).toBe(true);
+  });
+
+  it('staff has whatsapp read + send but not manage_channel', () => {
+    expect(hasPermission('MERCHANT_STAFF', [], 'whatsapp:read')).toBe(true);
+    expect(hasPermission('MERCHANT_STAFF', [], 'whatsapp:send')).toBe(true);
+    expect(hasPermission('MERCHANT_STAFF', [], 'whatsapp:manage_channel')).toBe(false);
+  });
+
+  it('ai_agent has whatsapp read only', () => {
+    expect(hasPermission('AI_AGENT', [], 'whatsapp:read')).toBe(true);
+    expect(hasPermission('AI_AGENT', [], 'whatsapp:send')).toBe(false);
+    expect(hasPermission('AI_AGENT', [], 'whatsapp:manage_channel')).toBe(false);
+  });
+
   it('staff has all operational commerce permissions', () => {
     expect(hasPermission('MERCHANT_STAFF', [], 'catalog:read')).toBe(true);
     expect(hasPermission('MERCHANT_STAFF', [], 'catalog:write')).toBe(true);

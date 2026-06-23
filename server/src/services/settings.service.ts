@@ -5,6 +5,13 @@ import { auditLog } from '../utils/audit-logger.js';
 /** Reserved business scope for platform-wide bootstrap settings. */
 export const PLATFORM_BUSINESS_ID = 'platform';
 
+/** M3-A WhatsApp BSP plumbing Setting keys. */
+export const WHATSAPP_WEBHOOK_APP_SECRET_KEY = 'whatsapp.webhook.appSecret';
+export const WHATSAPP_WEBHOOK_VERIFY_TOKEN_KEY = 'whatsapp.webhook.verifyToken';
+export const WHATSAPP_MESSAGE_RETENTION_DAYS_KEY = 'whatsapp.message.retentionDays';
+/** @deprecated use getSecretSetting('dialog360.apiKey') directly — key already registered. */
+export const DIALOG360_API_KEY = 'dialog360.apiKey';
+
 export interface SetSettingOptions {
   isSecret?: boolean;
   businessId?: string;
