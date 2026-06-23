@@ -215,7 +215,7 @@ export async function processInboundEvent(
       if (persisted) {
         try {
           await evaluateAutoReplies(businessId, conversation, persisted);
-        } catch (err) {
+        } catch {
           // auto-reply failures must never break inbound ingestion
         }
       }

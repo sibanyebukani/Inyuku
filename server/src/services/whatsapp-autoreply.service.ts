@@ -4,8 +4,6 @@ import { auditLog } from '../utils/audit-logger.js';
 import { sendWhatsAppMessage } from './whatsapp-send.service.js';
 import { composeCatalogText } from './whatsapp-catalog-share.service.js';
 
-// NOTE: This module is provably non-AI. It MUST NOT import or reference lib/ai (Condition 6c, CI-grepped).
-
 function normalizeText(s: string | null | undefined): string {
   return (s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
@@ -79,7 +77,7 @@ export async function evaluateAutoReplies(businessId: string, conversation: Conv
     try {
       await sendWhatsAppMessage(businessId, conversation.id, { type: 'TEXT', sendClass: 'TRANSACTIONAL', body: text });
       await auditLog({ businessId, entity: 'whatsapp_autoreply', action: 'FIRE', entityId: conversation.id, changes: { trigger: { old: null, new: rule.trigger }, action: { old: null, new: rule.action } } });
-    } catch (err) {
+    } catch {
       await auditLog({ businessId, entity: 'whatsapp_autoreply', action: 'SUPPRESSED', entityId: conversation.id, changes: { trigger: { old: null, new: rule.trigger }, reason: { old: null, new: 'send_error' } } });
     }
   }
