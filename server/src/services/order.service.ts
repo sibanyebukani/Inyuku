@@ -40,18 +40,23 @@ async function resolveCustomerFromConversation(
   if (match) {
     customerId = match.id;
   } else {
-    const upserted = await tx.customer.upsert({
-      where: { businessId_clientId: { businessId, clientId: `wa:${conversationId}` } },
-      create: {
+    // createMany + skipDuplicates is race-safe: the unique-constraint conflict is swallowed
+    // by Postgres ON CONFLICT DO NOTHING, so the transaction stays alive.
+    await tx.customer.createMany({
+      data: [{
         businessId,
         clientId: `wa:${conversationId}`,
         name: `WhatsApp ${maskMsisdn(conv.waContactId)}`,
         phone: normalizeMsisdn(conv.waContactId),
         consentId: null,
-      },
-      update: {},
+      }],
+      skipDuplicates: true,
     });
-    customerId = upserted.id;
+    const created = await tx.customer.findUnique({
+      where: { businessId_clientId: { businessId, clientId: `wa:${conversationId}` } },
+    });
+    if (!created) throw new Error('Failed to resolve customer after createMany');
+    customerId = created.id;
   }
   if (!conv.customerId) {
     await tx.conversation.update({ where: { id: conversationId }, data: { customerId } });
