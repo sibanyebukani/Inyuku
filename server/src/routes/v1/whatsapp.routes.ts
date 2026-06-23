@@ -9,9 +9,32 @@ import {
   updateTemplate,
   deleteTemplate,
 } from '../../services/whatsapp-template.service.js';
+import {
+  listChannels,
+  createChannel,
+  updateChannel,
+} from '../../services/whatsapp-channel.service.js';
 
 type BizParams = { businessId: string };
+type ChannelParams = { businessId: string; id: string };
 type TemplateParams = { businessId: string; id: string };
+
+const ChannelModeEnum = z.enum(['SANDBOX', 'LIVE']);
+
+const CreateChannelBody = z.object({
+  phoneNumberId: z.string().min(1),
+  displayPhoneNumber: z.string().min(1),
+  mode: ChannelModeEnum,
+  enabled: z.boolean().default(false),
+  wabaId: z.string().optional(),
+});
+
+const UpdateChannelBody = z.object({
+  displayPhoneNumber: z.string().min(1).optional(),
+  mode: ChannelModeEnum.optional(),
+  enabled: z.boolean().optional(),
+  wabaId: z.string().optional().nullable(),
+});
 
 const TemplateCategoryEnum = z.enum(['UTILITY', 'MARKETING', 'AUTHENTICATION']);
 const TemplateStatusEnum = z.enum(['DRAFT', 'PENDING', 'APPROVED', 'REJECTED', 'PAUSED', 'DISABLED']);
@@ -40,6 +63,72 @@ const UpdateTemplateBody = z.object({
 });
 
 export default async function whatsappRoutes(app: FastifyInstance) {
+  // ─── Channels ───────────────────────────────────────────────────────────────
+
+  app.get(
+    '/v1/businesses/:businessId/whatsapp/channels',
+    { preHandler: [app.authenticate, app.requirePermission({ permission: 'whatsapp:manage_channel' })] },
+    async (req) => {
+      const { businessId } = req.params as BizParams;
+      const channels = await listChannels(businessId);
+      return okEnvelope({ channels });
+    },
+  );
+
+  app.post(
+    '/v1/businesses/:businessId/whatsapp/channels',
+    {
+      preHandler: [app.authenticate, app.requirePermission({ permission: 'whatsapp:manage_channel' })],
+      schema: { body: CreateChannelBody },
+    },
+    async (req, reply) => {
+      const { businessId } = req.params as BizParams;
+      const body = req.body as z.infer<typeof CreateChannelBody>;
+      const channel = await createChannel(businessId, {
+        ...body,
+        wabaId: body.wabaId ?? null,
+      });
+      await auditLog({
+        ...buildAuditContext(req),
+        userId: req.user!.sub,
+        businessId,
+        entity: 'whatsapp_channel',
+        action: 'CREATE',
+        entityId: channel.id,
+        changes: { phoneNumberId: { old: null, new: channel.phoneNumberId } },
+      });
+      void reply.code(201);
+      return okEnvelope({ channel });
+    },
+  );
+
+  app.patch(
+    '/v1/businesses/:businessId/whatsapp/channels/:id',
+    {
+      preHandler: [app.authenticate, app.requirePermission({ permission: 'whatsapp:manage_channel' })],
+      schema: { body: UpdateChannelBody },
+    },
+    async (req) => {
+      const { businessId, id } = req.params as ChannelParams;
+      const body = req.body as z.infer<typeof UpdateChannelBody>;
+      const oldChannel = await listChannels(businessId).then((list) => list.find((c) => c.id === id));
+      const channel = await updateChannel(businessId, id, body);
+      await auditLog({
+        ...buildAuditContext(req),
+        userId: req.user!.sub,
+        businessId,
+        entity: 'whatsapp_channel',
+        action: 'UPDATE',
+        entityId: channel.id,
+        changes: {
+          enabled: { old: oldChannel?.enabled ?? null, new: channel.enabled },
+          mode: { old: oldChannel?.mode ?? null, new: channel.mode },
+        },
+      });
+      return okEnvelope({ channel });
+    },
+  );
+
   // ─── Templates ──────────────────────────────────────────────────────────────
 
   app.get(

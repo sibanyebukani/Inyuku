@@ -74,6 +74,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await prisma.whatsAppTemplate.deleteMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
+  await prisma.whatsAppChannel.deleteMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
 });
 
 function authHeader(token: string) {
@@ -96,6 +97,85 @@ async function createTemplate(token: string, overrides: Record<string, unknown> 
     },
   });
 }
+
+async function createChannel(token: string, overrides: Record<string, unknown> = {}) {
+  return app.inject({
+    method: 'POST',
+    url: `/v1/businesses/${bizA.id}/whatsapp/channels`,
+    headers: authHeader(token),
+    payload: {
+      phoneNumberId: `phone-${Date.now()}`,
+      displayPhoneNumber: '+27821234567',
+      mode: 'SANDBOX',
+      enabled: false,
+      ...overrides,
+    },
+  });
+}
+
+describe('channels', () => {
+  it('owner can create, list and patch channels', async () => {
+    const createRes = await createChannel(ownerToken);
+    expect(createRes.statusCode).toBe(201);
+    const channel = createRes.json().data.channel;
+    expect(channel.enabled).toBe(false);
+
+    const listRes = await app.inject({
+      method: 'GET',
+      url: `/v1/businesses/${bizA.id}/whatsapp/channels`,
+      headers: { cookie: `inyuku_at=${ownerToken}` },
+    });
+    expect(listRes.statusCode).toBe(200);
+    expect(listRes.json().data.channels.map((c: { id: string }) => c.id)).toContain(channel.id);
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/v1/businesses/${bizA.id}/whatsapp/channels/${channel.id}`,
+      headers: authHeader(ownerToken),
+      payload: { enabled: true, mode: 'LIVE' },
+    });
+    expect(patchRes.statusCode).toBe(200);
+    expect(patchRes.json().data.channel.enabled).toBe(true);
+    expect(patchRes.json().data.channel.mode).toBe('LIVE');
+
+    const audits = await prisma.auditLog.findMany({
+      where: { entity: 'whatsapp_channel', action: 'UPDATE', businessId: bizA.id },
+    });
+    expect(audits.length).toBeGreaterThan(0);
+  });
+
+  it('duplicate phoneNumberId returns 409', async () => {
+    const phoneNumberId = `dup-phone-${Date.now()}`;
+    const r1 = await createChannel(ownerToken, { phoneNumberId });
+    expect(r1.statusCode).toBe(201);
+    const r2 = await createChannel(ownerToken, { phoneNumberId });
+    expect(r2.statusCode).toBe(409);
+  });
+
+  it('staff and ai cannot manage channels', async () => {
+    const createRes = await createChannel(ownerToken);
+    const id = createRes.json().data.channel.id;
+
+    const staffCreate = await createChannel(staffToken);
+    expect(staffCreate.statusCode).toBe(403);
+
+    const staffPatch = await app.inject({
+      method: 'PATCH',
+      url: `/v1/businesses/${bizA.id}/whatsapp/channels/${id}`,
+      headers: authHeader(staffToken),
+      payload: { enabled: true },
+    });
+    expect(staffPatch.statusCode).toBe(403);
+
+    const aiPatch = await app.inject({
+      method: 'PATCH',
+      url: `/v1/businesses/${bizA.id}/whatsapp/channels/${id}`,
+      headers: authHeader(aiToken),
+      payload: { enabled: true },
+    });
+    expect(aiPatch.statusCode).toBe(403);
+  });
+});
 
 describe('templates', () => {
   it('owner can create and list templates', async () => {
