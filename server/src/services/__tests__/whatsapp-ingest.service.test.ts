@@ -10,6 +10,7 @@ import {
 } from '../whatsapp-ingest.service.js';
 import { claimPendingRows } from '../whatsapp-drainer.js';
 import * as rateLimit from '../../utils/rate-limit.js';
+import * as sendSvc from '../../services/whatsapp-send.service.js';
 
 let businessId: string;
 let channelId: string;
@@ -223,6 +224,35 @@ describe('whatsapp ingest service', () => {
       where: { businessId_providerMessageId: { businessId, providerMessageId: 'wamid.status-outbound' } },
     });
     expect(message?.status).toBe('DELIVERED');
+  });
+
+  it('runs the auto-reply evaluator once for a new inbound TEXT, never on redelivery (Conditions 7/9)', async () => {
+    const spy = vi.spyOn(sendSvc, 'sendWhatsAppMessage').mockResolvedValue({ message: {} } as any);
+    await prisma.whatsAppAutoReplyRule.create({
+      data: { businessId, trigger: 'GREETING', action: 'SEND_TEXT', replyText: 'Hello!', enabled: true, cooldownMinutes: 60 },
+    });
+
+    const payload = sampleInboundPayload('phone-id-ingest', 'pm-1');
+    const event1 = await prisma.whatsAppInboundEvent.create({
+      data: { providerEventId: 'evt-ar-1', phoneNumberId: 'phone-id-ingest', rawPayload: payload, signatureVerified: true, status: 'PENDING' },
+    });
+
+    await processInboundEvent(event1.id, payload, 'phone-id-ingest');
+    const after1 = await prisma.auditLog.count({ where: { businessId, entity: 'whatsapp_autoreply', action: 'FIRE' } });
+    expect(after1).toBe(1);
+
+    // redeliver the SAME providerMessageId -> no new FIRE
+    const event2 = await prisma.whatsAppInboundEvent.create({
+      data: { providerEventId: 'evt-ar-2', phoneNumberId: 'phone-id-ingest', rawPayload: payload, signatureVerified: true, status: 'PENDING' },
+    });
+    await processInboundEvent(event2.id, payload, 'phone-id-ingest');
+    const after2 = await prisma.auditLog.count({ where: { businessId, entity: 'whatsapp_autoreply', action: 'FIRE' } });
+    expect(after2).toBe(1);
+
+    const messages = await prisma.message.findMany({ where: { businessId, providerMessageId: 'pm-1' } });
+    expect(messages).toHaveLength(1);
+
+    spy.mockRestore();
   });
 
   it('bounded retry: failed rows are retried then marked FAILED', async () => {
