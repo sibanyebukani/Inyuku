@@ -1,6 +1,7 @@
 import { prisma } from '../db.js';
 import { Prisma } from '@prisma/client';
 import { NotFoundError, ValidationError } from '../utils/errors.js';
+import { normalizeMsisdn, maskMsisdn } from '../utils/phone.js';
 import type { Order, OrderLine } from '@prisma/client';
 
 export interface CreateOrderLineInput {
@@ -21,6 +22,40 @@ export interface CreateOrderInput {
 }
 
 export type OrderWithLines = Order & { lines: OrderLine[] };
+
+async function resolveCustomerFromConversation(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  conversationId: string,
+): Promise<string | null> {
+  const conv = await tx.conversation.findUnique({ where: { id: conversationId } });
+  if (!conv || conv.businessId !== businessId) return null; // already tenant-checked upstream; defensive
+  if (conv.customerId) return conv.customerId;
+
+  const normalized = normalizeMsisdn(conv.waContactId);
+  // try match by normalised phone within the tenant
+  const candidates = await tx.customer.findMany({ where: { businessId, phone: { not: null } } });
+  const match = candidates.find((c) => c.phone && normalizeMsisdn(c.phone) === normalized);
+  let customerId: string;
+  if (match) {
+    customerId = match.id;
+  } else {
+    const created = await tx.customer.create({
+      data: {
+        businessId,
+        clientId: `wa:${conversationId}`,
+        name: `WhatsApp ${maskMsisdn(conv.waContactId)}`,
+        phone: conv.waContactId,
+        consentId: null,
+      },
+    });
+    customerId = created.id;
+  }
+  if (!conv.customerId) {
+    await tx.conversation.update({ where: { id: conversationId }, data: { customerId } });
+  }
+  return customerId;
+}
 
 async function nextOrderNumber(businessId: string, tx: Prisma.TransactionClient): Promise<string> {
   const count = await tx.order.count({ where: { businessId } });
@@ -52,6 +87,11 @@ export async function createOrder(input: CreateOrderInput): Promise<{ order: Ord
   const occurredAt = input.occurredAt ?? new Date();
 
   return await prisma.$transaction(async (tx) => {
+    let resolvedCustomerId = input.customerId ?? null;
+    if (!resolvedCustomerId && input.conversationId) {
+      resolvedCustomerId = await resolveCustomerFromConversation(tx, input.businessId, input.conversationId);
+    }
+
     const orderNumber = await nextOrderNumber(input.businessId, tx);
 
     let subtotalCents = 0;
@@ -86,7 +126,7 @@ export async function createOrder(input: CreateOrderInput): Promise<{ order: Ord
         businessId: input.businessId,
         clientId: input.clientId,
         orderNumber,
-        customerId: input.customerId ?? null,
+        customerId: resolvedCustomerId,
         conversationId: input.conversationId ?? null,
         status,
         channel: input.channel ?? 'IN_PERSON',
