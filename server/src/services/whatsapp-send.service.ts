@@ -6,7 +6,7 @@
 
 import { Prisma } from '@prisma/client';
 import { prisma } from '../db.js';
-import { AppError, ForbiddenError, NotFoundError } from '../utils/errors.js';
+import { AppError, NotFoundError } from '../utils/errors.js';
 import { assertSendableTemplate } from './whatsapp-template.service.js';
 import { sendMessage, type BspSendPayload } from './whatsapp-bsp.client.js';
 import { windowState } from './whatsapp-window.js';
@@ -55,7 +55,9 @@ export async function assertConsentGranted(
   });
 
   if (!grant || grant.revocations.length > 0) {
-    throw new ForbiddenError('whatsapp_consent_denied');
+    // Contract §9.2: emit the machine-readable code `whatsapp_consent_denied`
+    // (parallel to the window/disabled gates), not the generic FORBIDDEN code.
+    throw new AppError('whatsapp_consent_denied', 'WhatsApp consent not granted', 403);
   }
 }
 
@@ -196,9 +198,12 @@ export async function sendWhatsAppMessage(
     return { message: sent };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
+    // The raw provider error may carry internal/PII detail — persist the full
+    // text only to the server-side ErrorLog (correlated by messageId). The
+    // Message row and the client-facing response carry a generic code only.
     const failed = await prisma.message.update({
       where: { id: message.id },
-      data: { status: 'FAILED', failureReason: reason },
+      data: { status: 'FAILED', failureReason: 'send_failed' },
     });
 
     await prisma.errorLog.create({
@@ -215,6 +220,6 @@ export async function sendWhatsAppMessage(
       },
     });
 
-    return { message: failed, error: reason };
+    return { message: failed, error: 'send_failed' };
   }
 }

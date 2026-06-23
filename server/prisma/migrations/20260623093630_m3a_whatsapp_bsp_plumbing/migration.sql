@@ -113,7 +113,6 @@ CREATE TABLE "whatsapp_templates" (
     "provider_template_id" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
-    "whatsAppChannelId" TEXT,
 
     CONSTRAINT "whatsapp_templates_pkey" PRIMARY KEY ("id")
 );
@@ -186,6 +185,3 @@ ALTER TABLE "whatsapp_inbound_events" ADD CONSTRAINT "whatsapp_inbound_events_bu
 
 -- AddForeignKey
 ALTER TABLE "whatsapp_templates" ADD CONSTRAINT "whatsapp_templates_business_id_fkey" FOREIGN KEY ("business_id") REFERENCES "businesses"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "whatsapp_templates" ADD CONSTRAINT "whatsapp_templates_whatsAppChannelId_fkey" FOREIGN KEY ("whatsAppChannelId") REFERENCES "whatsapp_channels"("id") ON DELETE SET NULL ON UPDATE CASCADE;

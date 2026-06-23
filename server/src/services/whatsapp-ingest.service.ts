@@ -116,6 +116,27 @@ export async function processInboundEvent(
 
   const businessId = channel.businessId;
 
+  // 7b. Defence-in-depth (F3): a LIVE channel that is not enabled must never have
+  // inbound projected into the tenant's Conversation/Message store — mirrors the
+  // send-side enable-flag gate. The raw event is retained in the outbox (held, not
+  // dropped) and marked UNROUTED + audited. Sandbox channels are always processed.
+  if (channel.mode === 'LIVE' && !channel.enabled) {
+    await prisma.whatsAppInboundEvent.update({
+      where: { id: eventId },
+      data: { businessId, status: 'UNROUTED', processedAt: now },
+    });
+    await auditLog({
+      entity: 'whatsapp_webhook',
+      action: 'UNROUTED',
+      businessId,
+      changes: {
+        phoneNumberId: { old: null, new: phoneNumberId },
+        reason: { old: null, new: 'live channel disabled' },
+      },
+    });
+    return { status: 'UNROUTED', businessId };
+  }
+
   // 8. Per-tenant Redis rate-limit.
   const rate = await checkRateLimit(
     `business:${businessId}:whatsapp:ingest`,
@@ -141,11 +162,16 @@ export async function processInboundEvent(
     const waContactId = msg.from ?? value?.contacts?.[0]?.wa_id;
     if (!waContactId) continue;
 
-    const occurredAt = parseTimestamp(msg.timestamp, now);
-    if (!isWithinReplayWindow(occurredAt, now)) {
-      // Advisory ±5-min replay window: drop stale/future message.
-      continue;
-    }
+    // Advisory ±5-min replay window (contract §3.1 control 2 / §3.2): NOT a drop
+    // gate. Idempotency (@@unique [businessId, providerMessageId] + skipDuplicates)
+    // is the primary replay control. An out-of-window provider stamp (load-shedding
+    // redelivery, clock skew) is normal, legitimate inbound — never silently dropped.
+    // The window only governs whether the provider timestamp is trustworthy: outside
+    // it, we fall back to receipt time for ordering/the 24h window and flag it on the
+    // RECEIVE audit for observability.
+    const providerTs = parseTimestamp(msg.timestamp, now);
+    const trustworthyTs = isWithinReplayWindow(providerTs, now);
+    const occurredAt = trustworthyTs ? providerTs : now;
 
     const conversation = await upsertConversation(
       businessId,
@@ -184,6 +210,9 @@ export async function processInboundEvent(
           direction: { old: null, new: 'INBOUND' },
           type: { old: null, new: type },
           waContactId: { old: null, new: maskPhone(waContactId) },
+          ...(trustworthyTs
+            ? {}
+            : { replayWindow: { old: null, new: 'outside_advisory_window' } }),
         },
       });
     }

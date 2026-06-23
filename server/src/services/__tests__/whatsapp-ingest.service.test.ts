@@ -103,6 +103,12 @@ describe('whatsapp ingest service', () => {
     await prisma.conversation.deleteMany({ where: { businessId } });
     await prisma.whatsAppInboundEvent.deleteMany({ where: { businessId } });
     await prisma.auditLog.deleteMany({ where: { businessId } });
+    // The unmapped / missing-phone routing paths persist UNROUTED events and audits
+    // with a null businessId (no tenant resolved). Those are not caught by the
+    // businessId-scoped deletes above, so purge them explicitly — otherwise they
+    // accumulate across runs and break the unmapped test's global UNROUTED count.
+    await prisma.whatsAppInboundEvent.deleteMany({ where: { businessId: null } });
+    await prisma.auditLog.deleteMany({ where: { businessId: null, entity: 'whatsapp_webhook' } });
     // Recreate the base conversation for status tests.
     const existing = await prisma.conversation.findUnique({
       where: { businessId_channelId_waContactId: { businessId, channelId, waContactId: '27821234567' } },
@@ -259,5 +265,87 @@ describe('whatsapp ingest service', () => {
       const claimed = await claimPendingRows(10);
       expect(claimed.some((r) => r.id === event.id)).toBe(false);
     });
+  });
+
+  it('out-of-window provider timestamp → persisted (not dropped) + flagged on RECEIVE audit', async () => {
+    // A stamp 10 min old: outside the advisory ±5-min window (load-shedding redelivery).
+    const staleTimestamp = String(Math.floor((Date.now() - 10 * 60 * 1000) / 1000));
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'waba-id',
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                messaging_product: 'whatsapp',
+                metadata: { phone_number_id: 'phone-id-ingest', display_phone_number: '+27821234567' },
+                contacts: [{ wa_id: '27821234567', profile: { name: 'Test Customer' } }],
+                messages: [
+                  {
+                    id: 'wamid.stale',
+                    from: '27821234567',
+                    timestamp: staleTimestamp,
+                    type: 'text',
+                    text: { body: 'Delayed by load-shedding' },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const event = await prisma.whatsAppInboundEvent.create({
+      data: { providerEventId: 'evt-stale', phoneNumberId: 'phone-id-ingest', rawPayload: payload, signatureVerified: true, status: 'PENDING' },
+    });
+
+    const result = await processInboundEvent(event.id, payload, 'phone-id-ingest');
+
+    // Idempotency is the primary replay control — the message must NOT be dropped.
+    expect(result.status).toBe('PROCESSED');
+    const messages = await prisma.message.findMany({ where: { businessId, providerMessageId: 'wamid.stale' } });
+    expect(messages).toHaveLength(1);
+    // The 24h window opens from receipt time (the untrustworthy stamp is not used).
+    const conversation = await prisma.conversation.findUnique({
+      where: { businessId_channelId_waContactId: { businessId, channelId, waContactId: '27821234567' } },
+    });
+    expect(conversation!.lastInboundAt).not.toBeNull();
+    // The out-of-window stamp is flagged on the RECEIVE audit for observability.
+    const audits = await prisma.auditLog.findMany({ where: { entity: 'whatsapp_message', action: 'RECEIVE', businessId } });
+    expect(audits).toHaveLength(1);
+    expect(JSON.stringify(audits[0].changes)).toContain('outside_advisory_window');
+  });
+
+  it('LIVE + disabled channel → inbound held (UNROUTED), no conversation/message', async () => {
+    await prisma.whatsAppChannel.create({
+      data: {
+        businessId,
+        phoneNumberId: 'phone-id-live-disabled',
+        displayPhoneNumber: '+27829999999',
+        mode: 'LIVE',
+        enabled: false,
+      },
+    });
+    const payload = sampleInboundPayload('phone-id-live-disabled', 'wamid.live-disabled', '27829999999');
+    const event = await prisma.whatsAppInboundEvent.create({
+      data: { providerEventId: 'evt-live-disabled', phoneNumberId: 'phone-id-live-disabled', rawPayload: payload, signatureVerified: true, status: 'PENDING' },
+    });
+
+    const result = await processInboundEvent(event.id, payload, 'phone-id-live-disabled');
+
+    // Defence-in-depth (F3): a disabled LIVE channel is not projected into the tenant store.
+    expect(result.status).toBe('UNROUTED');
+    const messages = await prisma.message.findMany({ where: { businessId, providerMessageId: 'wamid.live-disabled' } });
+    expect(messages).toHaveLength(0);
+    // The raw event is retained in the outbox (held, not silently dropped).
+    const row = await prisma.whatsAppInboundEvent.findUnique({ where: { id: event.id } });
+    expect(row?.status).toBe('UNROUTED');
+    expect(row?.rawPayload).not.toBeNull();
+    const audits = await prisma.auditLog.findMany({ where: { entity: 'whatsapp_webhook', action: 'UNROUTED', businessId } });
+    expect(audits).toHaveLength(1);
+
+    await prisma.whatsAppChannel.delete({ where: { phoneNumberId: 'phone-id-live-disabled' } });
   });
 });

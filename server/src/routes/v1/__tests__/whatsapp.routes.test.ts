@@ -462,7 +462,7 @@ describe('send', () => {
       body: 'Promo',
     });
     expect(r.statusCode).toBe(403);
-    expect(r.json()).toMatchObject({ ok: false, error: { code: 'FORBIDDEN' } });
+    expect(r.json()).toMatchObject({ ok: false, error: { code: 'whatsapp_consent_denied' } });
   });
 
   it('LIVE + disabled → 422 whatsapp_channel_disabled', async () => {
@@ -504,13 +504,13 @@ describe('send', () => {
     expect(r.json()).toMatchObject({ ok: false, error: { code: 'whatsapp_template_invalid' } });
   });
 
-  it('BSP failure → Message FAILED + ErrorLog', async () => {
+  it('BSP failure → Message FAILED + ErrorLog, raw provider error not leaked to client', async () => {
     const { conversation } = await createSandboxChannelAndConversation();
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: false,
       status: 500,
-      json: async () => ({ error: 'boom' }),
-      text: async () => 'boom',
+      json: async () => ({ error: 'boom-secret-provider-detail' }),
+      text: async () => 'boom-secret-provider-detail',
     } as Response);
 
     const r = await sendMessageRequest(conversation.id, ownerToken, {
@@ -520,9 +520,17 @@ describe('send', () => {
     });
 
     expect(r.statusCode).toBe(200);
-    expect(r.json().data.message.status).toBe('FAILED');
+    const data = r.json().data;
+    expect(data.message.status).toBe('FAILED');
+    // FIX 5: the raw provider error string must never reach the client — neither in
+    // the envelope `error` field nor on the returned Message.
+    expect(data.error).toBe('send_failed');
+    expect(data.message.failureReason).toBe('send_failed');
+    expect(JSON.stringify(data)).not.toContain('boom-secret-provider-detail');
+    // The full provider error is retained server-side (ErrorLog) for diagnostics.
     const logs = await prisma.errorLog.findMany({ where: { businessId: bizA.id } });
     expect(logs).toHaveLength(1);
+    expect(logs[0].message.length).toBeGreaterThan(0);
   });
 
   it('SEND audited with masked metadata', async () => {
