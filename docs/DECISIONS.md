@@ -12,7 +12,10 @@
 > EA register; the entries here record the Inyuku-specific shape. **ADR-001..007** are the product topology
 > decisions; **ADR-INY-008..012** persist the frozen M1 platform-foundation contracts; **ADR-INY-013..016**
 > persist the frozen M2 Commerce Core contracts (stock-as-movements, SUM stock, offline negative-stock,
-> sync idempotency/LWW — `docs/specs/2026-06-21-m2-commerce-core-contracts.md`).
+> sync idempotency/LWW — `docs/specs/2026-06-21-m2-commerce-core-contracts.md`); **ADR-INY-017..020** persist
+the M3-A WhatsApp BSP plumbing contracts (durable-outbox async-ack, provider-id idempotency, server-side
+tenant routing, table-backed template registry — `docs/specs/2026-06-22-m3a-bsp-plumbing-contracts.md`),
+**implemented in the merged M3-A build (PR #11 / `e530574`)**.
 
 This log supersedes the stack rows of the §3 ADR table in
 `docs/superpowers/specs/2026-06-18-inyuku-full-platform-roadmap-design.md`. The roadmap's original
@@ -497,7 +500,7 @@ updates, conflicts resolve by **last-writer-wins on `occurredAt`**. The append-o
 ## ADR-INY-017 — Inbound WhatsApp webhook async-ack via a durable Postgres outbox (not a new BullMQ queue)
 
 **Date:** 2026-06-22
-**Status:** Accepted (M3-A WhatsApp BSP plumbing)
+**Status:** Accepted — **Implemented in M3-A** (merged PR #11 / `e530574`)
 **Decided by:** bukani-architect (Inyuku)
 **References:** ADR-007 (BullMQ scoped to orders/fulfilment only), EA-ADR-014 (360dialog BSP topology), `docs/THREAT-MODEL.md` §7 (DoS condition 5 — explicit architect decision required); M3-A contracts (`docs/specs/2026-06-22-m3a-bsp-plumbing-contracts.md`)
 
@@ -531,7 +534,7 @@ fast 200; an interval worker claims `PENDING` rows (`FOR UPDATE SKIP LOCKED`), r
 ## ADR-INY-018 — Inbound idempotency on the provider message/event id (distinct from the M2 client-`clientId`)
 
 **Date:** 2026-06-22
-**Status:** Accepted (M3-A WhatsApp BSP plumbing)
+**Status:** Accepted — **Implemented in M3-A** (merged PR #11 / `e530574`)
 **Decided by:** bukani-architect (Inyuku)
 **References:** ADR-INY-016 (M2 client-`clientId` sync idempotency), `docs/THREAT-MODEL.md` §7 (Replay condition 2); M3-A contracts (`docs/specs/2026-06-22-m3a-bsp-plumbing-contracts.md`)
 
@@ -563,7 +566,7 @@ entities).
 ## ADR-INY-019 — Server-side WhatsApp tenant routing via an Inyuku-owned phone-number-id → businessId map
 
 **Date:** 2026-06-22
-**Status:** Accepted (M3-A WhatsApp BSP plumbing)
+**Status:** Accepted — **Implemented in M3-A** (merged PR #11 / `e530574`)
 **Decided by:** bukani-architect (Inyuku); commissioned by `bukani-security` (THREAT-MODEL §7, CRITICAL)
 **References:** ADR-005 (tenant root), `docs/THREAT-MODEL.md` §7 (Elevation/tenant-routing — CRITICAL condition 3); M3-A contracts (`docs/specs/2026-06-22-m3a-bsp-plumbing-contracts.md`)
 
@@ -594,7 +597,7 @@ admin/owner-only (`whatsapp:manage_channel`).
 ## ADR-INY-020 — Approved-template registry is table-backed (`WhatsAppTemplate`), not Setting-backed
 
 **Date:** 2026-06-22
-**Status:** Accepted (M3-A WhatsApp BSP plumbing)
+**Status:** Accepted — **Implemented in M3-A** (merged PR #11 / `e530574`)
 **Decided by:** bukani-architect (Inyuku)
 **References:** ADR-INY-011 (`Setting` table), M3 brief §6 (M3-S7 — approved-template constraint); M3-A contracts (`docs/specs/2026-06-22-m3a-bsp-plumbing-contracts.md`)
 

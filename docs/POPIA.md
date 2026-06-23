@@ -147,9 +147,11 @@ against the 360dialog sandbox with mocked webhooks and **no production PII**. Th
 
 ### Build vs production posture
 
-- **M3-A (BSP plumbing) build is NOT gated.** It runs against the **360dialog sandbox + mocked webhooks**
-  with **zero production PII**, so no DPA, consent ruling, or Meta verification is required to *build* it.
-  (Its *design* still needs the bukani-security webhook STRIDE entry — see `docs/THREAT-MODEL.md`.)
+- **M3-A (BSP plumbing) build is NOT gated — and is now MERGED** (PR #11 / `e530574`). It runs against the
+  **360dialog sandbox + mocked webhooks** with **zero production PII**, so no DPA, consent ruling, or Meta
+  verification was required to *build* it. Live messaging ships **DARK** behind the per-business
+  `WhatsAppChannel.enabled` flag (default `false`). Its bukani-security webhook STRIDE entry is
+  **APPROVED-WITH-CONDITIONS** with the 5 conditions implemented in M3-A (see `docs/THREAT-MODEL.md` §7).
 - **Live WhatsApp messaging (any production inbound/outbound message) is gated** — see items 1–3 below.
 - **M3-B / M3-C** build on M3-A against the sandbox; their **production** behaviour is gated by the same DPA
   plus the consent/responsible-party ruling.
@@ -168,10 +170,13 @@ against the 360dialog sandbox with mocked webhooks and **no production PII**. Th
    analogue of the M2 Customer-directory consent question (§7a). This **GA-gates non-transactional /
    template (marketing) WhatsApp messaging.** **Transactional order/payment-status updates may rest on a
    different lawful basis** (e.g. contract/operator) than marketing templates — **this is flagged for the
-   ruling and is NOT decided here.** Until the ruling lands, M3-C consent enforcement is to be
-   **default-deny stubbed** (no non-transactional/template send without a recorded grant), wired to the M1
-   `Consent` / `ConsentRevocation` ledger (§5). `Customer.consentId` remains **nullable until ruled** (§7a),
-   and WhatsApp opt-in grants attach to the same ledger.
+   ruling and is NOT decided here.** Until the ruling lands, the consent enforcement point is a
+   **default-deny stub** — **shipped in M3-A** (PR #11; `assertConsentGranted` in the send path: no
+   non-transactional/template send without a recorded grant; transactional free-form inside an open window
+   passes) — wired to the M1 `Consent` / `ConsentRevocation` ledger (§5); a denied send returns
+   `403 whatsapp_consent_denied`. The §7 ruling can replace the stub without touching the send path.
+   `Customer.consentId` remains **nullable until ruled** (§7a), and WhatsApp opt-in grants attach to the
+   same ledger.
 
 3. **Message-content PII retention (§6 TBD).** Inbound/outbound WhatsApp `Message` bodies and customer phone
    numbers are PII recorded in the §2 processing register; the **retention period is TBD** (POPIA §6,

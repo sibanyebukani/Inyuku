@@ -1,11 +1,12 @@
 # Inyuku Digital — API Reference (API.md)
 
 > **Owner:** bukani-docs · **Source of truth:** the OpenAPI contract emitted by the backend (CI drift check).
-> This doc mirrors the **M1 baseline** contract (bukani-architect, 2026-06-19) plus the **M2 Commerce Core**
-> contracts (bukani-architect, 2026-06-21). When the OpenAPI spec and this doc disagree, **the spec wins** —
-> file a docs fix.
+> This doc mirrors the **M1 baseline** contract (bukani-architect, 2026-06-19), the **M2 Commerce Core**
+> contracts (bukani-architect, 2026-06-21), and the **M3-A WhatsApp BSP plumbing** routes (merged PR #11 /
+> `e530574`). When the OpenAPI spec / code and this doc disagree, **the spec/code wins** — file a docs fix.
 > **Stack:** Fastify 5 (TypeScript) + Prisma 6 on Railway. API host: `api.inyuku.co.za` (provisional, ADR-004).
 > See `docs/SCHEMA.md`, `CLAUDE.md`. **M2 contracts:** `docs/specs/2026-06-21-m2-commerce-core-contracts.md`.
+> **M3-A contracts:** `docs/specs/2026-06-22-m3a-bsp-plumbing-contracts.md`.
 
 ## Response envelope
 
@@ -140,16 +141,19 @@ one business does not grant access to another (cross-tenant → 403/404). The `A
 | `dashboard:read` *(M2)* | Read the dashboard (non-financial) |
 | `dashboard:read_financial` *(M2)* | **Owner-only** — financial dashboard fields |
 | `sync:write` *(M2)* | Submit a batch-sync request |
+| `whatsapp:read` *(M3-A)* | Read WhatsApp channels, conversations, messages, templates |
+| `whatsapp:send` *(M3-A)* | Send a WhatsApp message (free-form/template), subject to window + consent + enable gates |
+| `whatsapp:manage_channel` *(M3-A)* | **Owner-only** — provision/configure `WhatsAppChannel` (incl. `enabled` / `mode`) + manage the template registry |
 
 ### Role map (defaults)
 
 | Role | Default posture |
 |---|---|
-| `MERCHANT_OWNER` | Full tenant control: `business:*`, `member:*`, `settings:read/update`, `audit:read`, `consent:*`, `ai:invoke`, `ai:usage:read`. **M2:** all `catalog:*` (incl. `catalog:read_cost`), `inventory:*`, `order:*`, `customer:*`, `dashboard:read` + `dashboard:read_financial`, `sync:write`. (`settings:read_secret` explicit-grant.) |
-| `MERCHANT_STAFF` | Operational subset: `business:read`, `member:read`, `settings:read`, `consent:read`, `ai:invoke`. **M2:** all commerce permissions **EXCEPT** `catalog:read_cost` and `dashboard:read_financial` — i.e. `catalog:read/write`, `inventory:read/write`, `order:read/write`, `customer:read/write`, `dashboard:read`, `sync:write`. (Sipho cannot see cost / margin / financial totals.) |
-| `ADMIN` | Platform admin: `platform:business:read/suspend`, `lead:read/update`, `audit:read`, plus tenant reads as scoped. |
+| `MERCHANT_OWNER` | Full tenant control: `business:*`, `member:*`, `settings:read/update`, `audit:read`, `consent:*`, `ai:invoke`, `ai:usage:read`. **M2:** all `catalog:*` (incl. `catalog:read_cost`), `inventory:*`, `order:*`, `customer:*`, `dashboard:read` + `dashboard:read_financial`, `sync:write`. **M3-A:** `whatsapp:read`, `whatsapp:send`, `whatsapp:manage_channel` (all three). (`settings:read_secret` explicit-grant.) |
+| `MERCHANT_STAFF` | Operational subset: `business:read`, `member:read`, `settings:read`, `consent:read`, `ai:invoke`. **M2:** all commerce permissions **EXCEPT** `catalog:read_cost` and `dashboard:read_financial` — i.e. `catalog:read/write`, `inventory:read/write`, `order:read/write`, `customer:read/write`, `dashboard:read`, `sync:write`. (Sipho cannot see cost / margin / financial totals.) **M3-A:** `whatsapp:read` + `whatsapp:send` (operates the conversation), **NOT** `whatsapp:manage_channel` (owner configures the channel/template/enable-flag — mirrors the M2 cost-split: staff operate, owner configures). |
+| `ADMIN` | Platform admin: `platform:business:read/suspend`, `lead:read/update`, `audit:read`, plus tenant reads as scoped. No per-tenant WhatsApp send. |
 | `SUPPORT` | Read-mostly platform support: `platform:business:read`, `lead:read`, `audit:read`. |
-| `AI_AGENT` | Read + `ai:invoke` only — **no writes** (EA-ADR-012). **M2:** read-only commerce — `catalog:read`, `inventory:read`, `order:read`, `customer:read`, `dashboard:read`. **No** `catalog:read_cost`, `dashboard:read_financial`, `sync:write`, or any `*:write`. |
+| `AI_AGENT` | Read + `ai:invoke` only — **no writes** (EA-ADR-012). **M2:** read-only commerce — `catalog:read`, `inventory:read`, `order:read`, `customer:read`, `dashboard:read`. **No** `catalog:read_cost`, `dashboard:read_financial`, `sync:write`, or any `*:write`. **M3-A:** `whatsapp:read` only — **no** `whatsapp:send` / `whatsapp:manage_channel` (M3 has no AI on the WhatsApp surface — rule-based only; keeps the principal least-privilege for M5). |
 
 > The role defaults above are the documented baseline; the authoritative defaults map ships in code with the
 > permission registry. Explicit `Membership.permissions[]` entries are unioned on top.
@@ -280,6 +284,100 @@ no-op), `CONFLICT` (lost the last-writer-wins compare), `REJECTED` (validation/p
 |---|---|---|
 | 400 | VALIDATION_ERROR | Malformed batch / > 100 ops |
 | 403 | FORBIDDEN | Missing `sync:write` / cross-tenant |
+
+---
+
+## Route list (M3-A — WhatsApp BSP plumbing)
+
+> Mirror of the shipped routes (PR #11 / `e530574`) and the frozen M3-A contract. WhatsApp **live messaging
+> ships DARK** behind the per-business `WhatsAppChannel.enabled` flag (default `false`) — sandbox-only until
+> the 360dialog sub-processor DPA + EU-pin clear (POPIA §7b).
+
+### Inbound webhook — PUBLIC at the edge (tenant resolved server-side; NOT under `:businessId`)
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/v1/webhooks/whatsapp` | **Public** | Subscription verify / hub-challenge handshake |
+| POST | `/v1/webhooks/whatsapp` | **Public + HMAC signature** | Inbound messages + status callbacks |
+
+- **`GET`** — Meta/360dialog hub-challenge: query `hub.mode=subscribe`, `hub.verify_token`, `hub.challenge`.
+  If `hub.verify_token` === `Setting whatsapp.webhook.verifyToken` (**constant-time** compare), echoes
+  `hub.challenge` as **`200 text/plain`**; else `403 text/plain`. **Not JSON-enveloped** (Meta's contract
+  requires the raw challenge string).
+- **`POST`** — the security-critical fast-ack pipeline: capture **raw** body → **HMAC-SHA256 verify the raw
+  body against `X-Hub-Signature-256` before any parse/DB write** (fail-closed) → edge rate-limit → parse →
+  insert the durable outbox row (`WhatsAppInboundEvent`, `ON CONFLICT(providerEventId) DO NOTHING`) →
+  **return `200 { ok: true }` fast**; heavy work (tenant routing, `Conversation`/`Message` persistence,
+  status callbacks) runs **async** in the outbox drainer.
+- Responses: `200 { ok: true }` (accepted; processing async — **fast-ack**); `401 UNAUTHORIZED` (signature
+  verify failed — audited `(whatsapp_webhook, VERIFY_FAILED)`, no parse/persist); `400 VALIDATION_ERROR`
+  (signature passed but body is not valid JSON); `429 RATE_LIMIT_EXCEEDED` (per-IP or global edge ceiling).
+- **Idempotent:** a redelivered `providerEventId` / `providerMessageId` is a no-op (still `200`).
+- This route is **exempt** from the standard auth/cookie/CSRF guards and the `*.inyuku.co.za` CORS lock
+  (server-to-server), but **subject to the signature check + rate-limit**. Tenant is resolved **only** by
+  `phoneNumberId → WhatsAppChannel.businessId` server-side (ADR-INY-019) — never from the payload; unmapped
+  → `(whatsapp_webhook, UNROUTED)`.
+
+### Tenant-scoped routes — under `/v1/businesses/:businessId/whatsapp/*`, access cookie + RBAC
+
+| Method | Path | Permission | Audit |
+|---|---|---|---|
+| GET | `/whatsapp/channels` | `whatsapp:manage_channel` | — |
+| POST | `/whatsapp/channels` | `whatsapp:manage_channel` | `(whatsapp_channel, CREATE)` — `201` |
+| PATCH | `/whatsapp/channels/:id` | `whatsapp:manage_channel` | `(whatsapp_channel, UPDATE)` — incl. `enabled` / `mode` |
+| GET | `/whatsapp/conversations` | `whatsapp:read` | — (paginated: `?page` / `?limit ≤ 100`) |
+| GET | `/whatsapp/conversations/:id` | `whatsapp:read` | — (includes computed `windowState` + `windowExpiresAt`) |
+| GET | `/whatsapp/conversations/:id/messages` | `whatsapp:read` | — (paginated; `body` is PII) |
+| POST | `/whatsapp/conversations/:id/messages` | `whatsapp:send` | `(whatsapp_message, SEND)` — server picks free-form vs template by window; `sendClass` required; consent + `enabled` gates apply |
+| GET | `/whatsapp/templates` | `whatsapp:read` | — |
+| POST | `/whatsapp/templates` | `whatsapp:manage_channel` | `(whatsapp_template, CREATE)` — `201` |
+| PATCH | `/whatsapp/templates/:id` | `whatsapp:manage_channel` | `(whatsapp_template, UPDATE)` |
+| DELETE | `/whatsapp/templates/:id` | `whatsapp:manage_channel` | `(whatsapp_template, DELETE)` |
+
+All `/v1/businesses/:businessId/whatsapp/*` routes resolve and enforce the tenant `businessId`; cross-tenant
+→ 403/404.
+
+### Send a message — `POST /whatsapp/conversations/:id/messages`
+
+The server chooses free-form vs template **from the 24h window state**, not the caller. `sendClass` is a
+**required** input (never inferred). LIVE send requires `WhatsAppChannel.enabled = true` (sandbox always
+available).
+
+**Request body**
+```json
+{
+  "type": "TEXT",
+  "sendClass": "TRANSACTIONAL",
+  "body": "Your order is ready for collection.",
+  "templateName": null,
+  "templateParams": null,
+  "language": "en"
+}
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `type` | `MessageType` | Yes | `TEXT` (free-form) or `TEMPLATE` |
+| `sendClass` | `SendClass` | **Yes** | `TRANSACTIONAL` / `MARKETING` — never inferred (compliance seam) |
+| `body` | string | for free-form | PII; ignored for `TEMPLATE` |
+| `templateName` | string | for templates | must resolve an `APPROVED` `WhatsAppTemplate` |
+| `templateParams` | object | for templates | must satisfy the template `paramSchema` |
+| `language` | string | for templates | template locale |
+
+**The 24h customer-care session window** — each verified **inbound** message sets
+`Conversation.lastInboundAt`, (re)opening a 24h window. `OPEN` (`now - lastInboundAt < 24h`) allows
+free-form **or** approved template; `CLOSED` allows **approved template only**. Outbound never opens the
+window.
+
+**Send responses / error codes** (standard error envelope):
+
+| Status | Code | When |
+|---|---|---|
+| 200 | — | Message queued/sent (or, on BSP failure, persisted `FAILED` with an `error: "send_failed"` field) |
+| 409 | `whatsapp_window_closed` | Free-form `TEXT` attempted while the window is `CLOSED` (use an approved template) |
+| 422 | `whatsapp_template_invalid` | Template not `APPROVED`, unregistered, or `templateParams` don't satisfy `paramSchema` |
+| 422 | `whatsapp_channel_disabled` | `LIVE` channel with `enabled = false` (sub-processor enable flag) |
+| 403 | `whatsapp_consent_denied` | Non-transactional / template send without a recorded consent grant (default-deny stub) |
 
 ---
 
