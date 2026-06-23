@@ -620,3 +620,117 @@ sending an unregistered/unapproved template is impossible. Template CRUD is `wha
 ### Alternatives rejected
 - Setting-backed JSON registry (no per-row RBAC/audit, no clean parameter validation, no status lifecycle).
 - Hard-coded template list in code (not per-tenant; needs a deploy to change; no merchant self-service).
+
+---
+
+## ADR-INY-021 — Conversation→Order linkage = nullable FK on `Order` (`Order.conversationId`)
+
+**Date:** 2026-06-23
+**Status:** Accepted (M3-B design; **FROZEN** contract) — build pending
+**Decided by:** bukani-architect (Inyuku)
+**References:** M3-B brief §10 / §8.6 (one-order-model), M3-B contracts §2.1 / §11 (`docs/specs/2026-06-23-m3b-commerce-over-chat-contracts.md`); ADR-005 (tenant root); THREAT-MODEL §8 Condition 1
+
+### Context
+S3/AC4 needs a captured WhatsApp `Order` linked back to its `Conversation` **without forking the one-order
+model** — the captured order must remain an ordinary M2 `Order` (dashboard, ledger, RBAC, fulfilment seams).
+
+### Decision
+Add **one nullable FK column to the existing `Order`** — `conversationId String?`, `onDelete: SetNull`,
+`@@index([conversationId])`, with the inverse `orders Order[]` on `Conversation`. Set **only** for
+`channel = WHATSAPP` captures. Capture MUST assert `conversation.businessId === customer.businessId ===
+order.businessId === route businessId` before writing the link (Condition 1) — never a cross-tenant link.
+
+### Consequences
+- One-order-model preserved; column is null-sparse on the hot `Order` table (zero cost for the M2 path).
+- Models **repeat** orders on one thread (which a 1:1 `Conversation.orderId` cannot).
+- `onDelete: SetNull` — the order is the durable **record-of-trade** and survives a conversation deletion
+  (link clears); never cascade-delete an order from a conversation.
+
+### Alternatives rejected
+- Nullable `orderId` on `Conversation` (1:1; cannot model repeat orders on a thread).
+- A thin join table (extra table + query hop for a strict ≤many cardinality a single FK expresses).
+
+---
+
+## ADR-INY-022 — Auto-reply config is a tenant table (`WhatsAppAutoReplyRule`), not a `Setting` blob
+
+**Date:** 2026-06-23
+**Status:** Accepted (M3-B design; **FROZEN** contract) — build pending
+**Decided by:** bukani-architect (Inyuku)
+**References:** M3-B brief §10 (S5/AC6 owner-configures/staff-operates), M3-B contracts §2.2 / §11; ADR-INY-020 (same reasoning as the template registry); ADR-INY-011 (`Setting`)
+
+### Context
+S5/AC6 needs owner-configured greeting / exact-keyword / out-of-hours auto-reply rules: per-tenant, multiple
+typed rows, queryable in the inbound drainer, RBAC-gated, auditable, with a SAST-hours window and a cooldown.
+
+### Decision
+Model the config as a **`WhatsAppAutoReplyRule` table** (mirrors ADR-INY-020): `businessId` FK, optional
+`channelId`, `trigger` / `action` enums, `enabled` default `false`, `keyword`, `replyText`, SAST
+`hoursStart`/`hoursEnd`/`daysActive[]`, `cooldownMinutes`, snake_case `@@map`. Writes are the new owner-only
+`whatsapp:manage_autoreply`; reads are `whatsapp:read` (staff see rules + that they fired). Loop/cooldown
+state is **derived from the `Message` ledger**, not stored on the rule.
+
+### Consequences
+- Clean RBAC, per-rule audit (`(whatsapp_autoreply_rule, CREATE|UPDATE|DELETE)`), indexable trigger lookup.
+- The evaluator is **provably non-AI** — never imports/calls `lib/ai.js` (CI grep assertion; Condition 6c).
+
+### Alternatives rejected
+- A `Setting` JSON blob (cannot express keyword matching / hours / cooldown / per-rule enable + RBAC + audit
+  cleanly).
+
+---
+
+## ADR-INY-023 — Catalog share is a server-composed plain ZAR-priced text list
+
+**Date:** 2026-06-23
+**Status:** Accepted (M3-B design; **FROZEN** contract) — build pending
+**Decided by:** bukani-architect (Inyuku)
+**References:** M3-B brief §8.7 (representation deferred to architect), M3-B contracts §4.2 / §11; `docs/PERSONAS.md` (Nomsa — entry-level Android); THREAT-MODEL §8 Conditions 2 & 4
+
+### Context
+S4 shares the catalog into a chat. Representation was deferred to the architect; Nomsa's entry-level Android /
+low-literacy / low-data context and cost-split sensitivity (Sipho) drive the choice.
+
+### Decision
+A **server-composed, plain ZAR-priced text list** behind a thin `POST …/share-catalog` route: source = live
+M2 catalog filtered to `status = ACTIVE` (archived excluded), out-of-stock **included-and-flagged**,
+`costPriceCents` **never read** (sell-price-only query — Condition 2), dispatched through the **single**
+`sendWhatsAppMessage()` choke-point (Condition 4). Server formats cents → `R{rands}.{cc}`.
+
+### Consequences
+- Lowest cost / most robust on low-end devices; one outbound path through the M3-A gates; price-formatting +
+  RBAC stay **server-side** (no client price logic, no `costPriceCents` near the client).
+
+### Alternatives rejected
+- One product-message per item (cost + noise).
+- A 360dialog interactive list (reconsider later only if a clearly-cheaper interactive variant is confirmed).
+
+---
+
+## ADR-INY-024 — Order capture rides the M2 `clientId`/`sync` path; no new offline mechanism, no new sync op
+
+**Date:** 2026-06-23
+**Status:** Accepted (M3-B design; **FROZEN** contract) — build pending
+**Decided by:** bukani-architect (Inyuku)
+**References:** M3-B brief §10 (offline P0; one offline mechanism), M3-B contracts §4.1 / §11; ADR-INY-016 (clientId + LWW-on-`occurredAt`); ADR-INY-015 (deterministic SALE `clientId`); THREAT-MODEL §8 Conditions 8 & 9
+
+### Context
+S3/AC6 offline capture must converge **exactly once** on reconnect, with no parallel offline mechanism
+(brief §10).
+
+### Decision
+Reuse the existing `entity:"order"` / `op:"create"` sync op and the `@@unique([businessId, clientId])` +
+LWW-on-`occurredAt` resolution (ADR-INY-016). The **only** additions to the order-create surface are two
+**optional** fields — `channel` + `conversationId`. **No** `entity:"whatsapp_order"`, **no** `op:"capture"`.
+The sync order payload is validated with the **same typed Zod schema** as the online `POST /orders` body
+(Condition 8 — closes finding #4; the `z.record(z.unknown())` passthrough is forbidden for the order op).
+
+### Consequences
+- One offline mechanism platform-wide; WhatsApp orders are ordinary M2 orders end-to-end; zero new
+  convergence logic to test.
+- End-to-end replay safety holds (Condition 9): inbound provider-id dedup ⇒ order `clientId` convergence ⇒
+  deterministic SALE `clientId` ⇒ a redelivered inbound cannot produce a duplicate order or double decrement.
+
+### Alternatives rejected
+- A new `whatsapp_order` entity / `capture` op (a second offline mechanism to build, test, and keep
+  convergent — for no benefit over the existing path).

@@ -61,6 +61,8 @@
 | `InboundEventStatus` *(M3-A)* | `PENDING`, `PROCESSING`, `PROCESSED`, `UNROUTED`, `FAILED` (durable outbox lifecycle) |
 | `TemplateCategory` *(M3-A)* | `UTILITY`, `MARKETING`, `AUTHENTICATION` |
 | `TemplateStatus` *(M3-A)* | `DRAFT`, `PENDING`, `APPROVED`, `REJECTED`, `PAUSED`, `DISABLED` (only `APPROVED` is sendable) |
+| `AutoReplyTrigger` *(M3-B)* | `GREETING`, `KEYWORD`, `OUT_OF_HOURS` (what makes an auto-reply rule fire) |
+| `AutoReplyAction` *(M3-B)* | `SEND_TEXT`, `SHARE_CATALOG` (what the rule sends when it fires) |
 
 > `AI_AGENT` is the least-privilege principal for the tool-using Business Agent — **read + `ai:invoke`
 > only**, no writes (EA-ADR-012). See `docs/API.md` § role map.
@@ -260,6 +262,8 @@ sum (ADR-INY-013). Never updated or deleted.
 
 ### Table: Order
 **Purpose:** A sale/transaction record. In M2 `channel = IN_PERSON` and `paymentState` is set manually.
+A WhatsApp capture (M3-B) is an **ordinary `Order`** with `channel = WHATSAPP` + `conversationId` set — no
+parallel order model (ADR-INY-024).
 **Tenancy:** `businessId` **non-null**.
 
 | Field | Type | Required | Notes |
@@ -268,10 +272,11 @@ sum (ADR-INY-013). Never updated or deleted.
 | `businessId` | cuid | Yes | Tenant FK |
 | `clientId` | text | Yes | Offline idempotency key |
 | `orderNumber` | text/Int | Yes | Per-business human order number |
-| `customerId` | cuid | No | FK → `Customer` |
+| `customerId` | cuid | No | FK → `Customer`, **`onDelete: SetNull`** |
+| `conversationId` | cuid | No | *(M3-B)* **Nullable** FK → `Conversation`, **`onDelete: SetNull`** — the Conversation→Order linkage seam; set **only** for `channel = WHATSAPP` captures (ADR-INY-021) |
 | `status` | `OrderStatus` | Yes | `DRAFT` / `COMPLETED` / `VOID` |
-| `channel` | `OrderChannel` | Yes | `IN_PERSON` in M2 (`WHATSAPP` / `ONLINE` are M3/M4 seams) |
-| `paymentState` | `PaymentState` | Yes | `PAID` / `UNPAID` (manual in M2) |
+| `channel` | `OrderChannel` | Yes | `IN_PERSON` in M2; `WHATSAPP` set by an M3-B capture (`ONLINE` is an M4 seam) |
+| `paymentState` | `PaymentState` | Yes | `PAID` / `UNPAID` (manual in M2; WhatsApp captures default `UNPAID` — notify-never-collect) |
 | `subtotalCents` | Int | Yes | Sum of line totals, ZAR cents |
 | `totalCents` | Int | Yes | Order total, ZAR cents |
 | `fulfilmentStatus` | `FulfilmentStatus` | No | **Nullable seam** — deferred lifecycle |
@@ -280,8 +285,13 @@ sum (ADR-INY-013). Never updated or deleted.
 | `occurredAt` | timestamp | Yes | When the sale happened (offline-aware; sync LWW) |
 
 - `complete` auto-decrements stock (a `SALE` movement); `void` reverses it (`SALE_REVERSAL`).
-- Indexes: `@@unique([businessId, clientId])`.
-- Relationships: belongs to `Business`, optional `Customer`; has many `OrderLine`, `StockMovement`.
+- Indexes: `@@unique([businessId, clientId])`, `@@unique([businessId, orderNumber])`, **`@@index([conversationId])`** *(M3-B)*.
+- **`conversationId` is `onDelete: SetNull`** (M3-B): the order is the durable record-of-trade and **survives**
+  a conversation deletion (the link clears); never cascade-delete an order from a conversation. Capture MUST
+  assert `conversation.businessId === customer.businessId === order.businessId` before writing the link
+  (STRIDE §8 Condition 1).
+- Relationships: belongs to `Business`, optional `Customer`, **optional `Conversation` *(M3-B)***; has many
+  `OrderLine`, `StockMovement`.
 
 ### Table: OrderLine
 **Purpose:** A line item on an order, with the product **name and price snapshotted at sale time** — a
@@ -382,7 +392,7 @@ the per-business **sub-processor enable flag** (compliance seam) and SANDBOX/LIV
 | `id` | cuid | Auto | PK |
 | `businessId` | cuid | Yes | Tenant FK |
 | `channelId` | cuid | Yes | FK → `WhatsAppChannel` |
-| `customerId` | cuid | No | FK → `Customer`, **nullable** (directory linkage deferred to M3-B; `onDelete: SetNull`) |
+| `customerId` | cuid | No | FK → `Customer`, **nullable** (linked/back-linked on an M3-B capture; `onDelete: SetNull`) |
 | `waContactId` | text | Yes | Customer WhatsApp id / msisdn (**PII**) |
 | `lastInboundAt` | timestamp | No | Most recent verified inbound — drives the 24h session window |
 | `lastOutboundAt` | timestamp | No | Most recent outbound |
@@ -392,7 +402,8 @@ the per-business **sub-processor enable flag** (compliance seam) and SANDBOX/LIV
   `businessId`; `customerId`.
 - Window state (`OPEN` / `CLOSED` + `windowExpiresAt`) is **computed** at read time from `lastInboundAt`,
   not stored.
-- Relationships: belongs to `Business`, `WhatsAppChannel`, optional `Customer`; has many `Message`.
+- Relationships: belongs to `Business`, `WhatsAppChannel`, optional `Customer`; has many `Message`,
+  **has many `Order` *(M3-B inverse of `Order.conversationId`)*** — a thread may produce many captured orders.
 
 ### Table: Message
 **Purpose:** Inbound + outbound WhatsApp messages. **Append-only (soft-delete only).**
@@ -472,6 +483,52 @@ Setting-backed.
 
 ---
 
+## Commerce-over-Chat tables (M3-B)
+
+> Source: `docs/specs/2026-06-23-m3b-commerce-over-chat-contracts.md` (**FROZEN**, 2026-06-23). M3-B is
+> deliberately **thin on schema** — the value is wiring the existing M2 + M3-A seams. The only schema
+> additions are (a) the `Order.conversationId` linkage field (documented in *Table: Order* above) and (b)
+> the new `WhatsAppAutoReplyRule` config table below. **No new idempotency mechanism** — order capture reuses
+> the M2 `clientId` / `sync` path (ADR-INY-024).
+
+### Table: WhatsAppAutoReplyRule
+**Purpose:** Per-tenant, owner-configured **deterministic** auto-reply rules (greeting / exact-normalised
+keyword / out-of-hours) — a typed tenant table, **not** a `Setting` blob (ADR-INY-022). The evaluator that
+consumes these is **provably non-AI** (never imports/calls `lib/ai.js`; CI grep assertion).
+**PII fields:** none. **Tenancy:** `businessId` **non-null**.
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | cuid | Auto | PK |
+| `businessId` | cuid | Yes | Tenant FK |
+| `channelId` | cuid | No | **Nullable** — scope to one `WhatsAppChannel`; `null` = all the tenant's channels (soft FK; service validates ownership) |
+| `trigger` | `AutoReplyTrigger` | Yes | `GREETING` / `KEYWORD` / `OUT_OF_HOURS` |
+| `enabled` | bool | Yes (default **`false`**) | Ships **OFF** — merchant opts in (no surprise sends) |
+| `keyword` | text | No | Required for `KEYWORD` — exact normalised match (lower + trim + collapse-ws; **no fuzzy / NLP**) |
+| `action` | `AutoReplyAction` | Yes | `SEND_TEXT` / `SHARE_CATALOG` |
+| `replyText` | text | No | Required for `SEND_TEXT` / out-of-hours canned body |
+| `hoursStart` | text | No | `OUT_OF_HOURS` open (`HH:mm`, 24h) — evaluated in **SAST (`Africa/Johannesburg`)** |
+| `hoursEnd` | text | No | `OUT_OF_HOURS` close (`HH:mm`, 24h) — SAST |
+| `daysActive` | Int[] | No | ISO weekday ints `1=Mon..7=Sun`; `[]` = every day |
+| `cooldownMinutes` | Int | Yes (default `720`) | Once-per-period throttle (default 12h) — loop state is **derived from the `Message` ledger**, not stored here |
+| `createdAt` | timestamp | Auto | |
+| `updatedAt` | timestamp | Auto | |
+
+- Indexes: `@@index([businessId])`; `@@index([businessId, trigger, enabled])` (drainer lookup).
+- `@@map("whatsapp_auto_reply_rules")`. Relationships: belongs to `Business` (`onDelete: Cascade`).
+- **Loop/cooldown state is NOT stored on the rule** — the evaluator derives once-per-period throttling from
+  the prior OUTBOUND auto-reply of the same `trigger` in the append-only `Message` ledger (STRIDE §8
+  Condition 7). The rule carries only the `cooldownMinutes` policy.
+
+> **Consent-model seam — DESIGNED-NOT-BUILT (residual R1).** Per-customer revocation (S6/AC3) needs a
+> subject/customer reference on the M1 `Consent` / `ConsentRevocation` ledger (the row `Customer.consentId`
+> points at). M3-B **ships the seam** (the `assertConsentGranted(..., ctx)` signature + the model sketch) but
+> **defers building the per-customer revocation store** until the E2 responsible-party ruling lands — see the
+> frozen contract §6.1a. **Do not add a built per-customer-consent table in M3-B.** `Customer.consentId`
+> **stays nullable**; the marketing branch is default-deny when no customer-scoped grant exists.
+
+---
+
 ## Relationship summary
 
 ```
@@ -497,4 +554,8 @@ Business 1──* WhatsAppChannel | Conversation | Message | WhatsAppTemplate
 Business 1──*? WhatsAppInboundEvent (businessId nullable; durable outbox)
 WhatsAppChannel 1──* Conversation
 Conversation 1──* Message ; Conversation *──1? Customer (customerId nullable; onDelete:SetNull)
+
+# Commerce over Chat (M3-B)
+Business 1──* WhatsAppAutoReplyRule (channelId nullable soft-FK)
+Conversation 1──* Order (Order.conversationId nullable; onDelete:SetNull) — WHATSAPP captures only
 ```
