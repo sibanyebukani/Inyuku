@@ -7,6 +7,560 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id                  String               @id @default(cuid()) @map("id")
+  email               String               @unique @map("email")
+  name                String               @map("name")
+  phone               String?              @unique @map("phone")
+  passwordHash        String               @map("password_hash")
+  status              UserStatus           @default(ACTIVE) @map("status")
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
+  failedAttempts      Int                  @default(0) @map("failed_attempts")
+  lockedUntil         DateTime?            @map("locked_until")
+  aiUsages            AiUsage[]
+  auditLogs           AuditLog[]
+  consents            Consent[]
+  memberships         Membership[]
+  passwordResetTokens PasswordResetToken[]
+  phoneOtps           PhoneOtp[]
+  refreshTokens       RefreshToken[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id           String    @id @default(cuid()) @map("id")
+  tokenHash    String    @unique @map("token_hash")
+  userId       String    @map("user_id")
+  familyId     String    @map("family_id")
+  expiresAt    DateTime  @map("expires_at")
+  revokedAt    DateTime? @map("revoked_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  replacedById String?   @map("replaced_by_id")
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid()) @map("id")
+  userId    String    @map("user_id")
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_reset_tokens")
+}
+
+model PhoneOtp {
+  id         String    @id @default(cuid()) @map("id")
+  userId     String?   @map("user_id")
+  phone      String    @map("phone")
+  codeHash   String    @map("code_hash")
+  attempts   Int       @default(0) @map("attempts")
+  expiresAt  DateTime  @map("expires_at")
+  verifiedAt DateTime? @map("verified_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  purpose    String?   @map("purpose")
+  user       User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("phone_otps")
+}
+
+model Business {
+  id                    String                 @id @default(cuid()) @map("id")
+  name                  String                 @map("name")
+  status                BusinessStatus         @default(ACTIVE) @map("status")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+  slug                  String?                @unique @map("slug")
+  aiUsages              AiUsage[]
+  analyticsEvents       AnalyticsEvent[]
+  auditLogs             AuditLog[]
+  consents              Consent[]
+  customers             Customer[]
+  errorLogs             ErrorLog[]
+  memberships           Membership[]
+  orderLines            OrderLine[]
+  orders                Order[]
+  permissions           Permission[]
+  products              Product[]
+  stockMovements        StockMovement[]
+  whatsappChannels      WhatsAppChannel[]
+  conversations         Conversation[]
+  messages              Message[]
+  whatsappInboundEvents WhatsAppInboundEvent[]
+  whatsappTemplates     WhatsAppTemplate[]
+
+  @@map("businesses")
+}
+
+model Membership {
+  id          String         @id @default(cuid()) @map("id")
+  userId      String         @map("user_id")
+  businessId  String         @map("business_id")
+  role        MembershipRole @default(MERCHANT_STAFF) @map("role")
+  permissions String[]       @map("permissions")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+  business    Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, businessId])
+  @@map("memberships")
+}
+
+model Permission {
+  id          String    @id @default(cuid()) @map("id")
+  key         String    @unique @map("key")
+  description String?   @map("description")
+  businessId  String?   @map("business_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  business    Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@map("permissions")
+}
+
+model AuditLog {
+  id         String    @id @default(cuid()) @map("id")
+  userId     String?   @map("user_id")
+  businessId String?   @map("business_id")
+  action     String    @map("action")
+  entity     String    @map("entity")
+  entityId   String?   @map("entity_id")
+  changes    Json?     @map("changes")
+  ipAddress  String?   @map("ip_address")
+  userAgent  String?   @map("user_agent")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  business   Business? @relation(fields: [businessId], references: [id])
+  user       User?     @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+model ErrorLog {
+  id         String    @id @default(cuid()) @map("id")
+  businessId String?   @map("business_id")
+  code       String    @map("code")
+  message    String    @map("message")
+  stack      String?   @map("stack")
+  context    Json?     @map("context")
+  commitSha  String?   @map("commit_sha")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  business   Business? @relation(fields: [businessId], references: [id])
+
+  @@map("error_logs")
+}
+
+model Setting {
+  id         String   @id @default(cuid()) @map("id")
+  key        String   @map("key")
+  value      String   @map("value")
+  isSecret   Boolean  @default(false) @map("is_secret")
+  businessId String   @map("business_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([key, businessId])
+  @@map("settings")
+}
+
+model Consent {
+  id          String              @id @default(cuid()) @map("id")
+  businessId  String              @map("business_id")
+  userId      String?             @map("user_id")
+  purpose     String              @map("purpose")
+  status      ConsentStatus       @default(GRANTED) @map("status")
+  grantedAt   DateTime            @default(now()) @map("granted_at")
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+  revocations ConsentRevocation[]
+  business    Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user        User?               @relation(fields: [userId], references: [id])
+  customers   Customer[]
+
+  @@map("consents")
+}
+
+model ConsentRevocation {
+  id        String   @id @default(cuid()) @map("id")
+  consentId String   @map("consent_id")
+  reason    String?  @map("reason")
+  createdAt DateTime @default(now()) @map("created_at")
+  consent   Consent  @relation(fields: [consentId], references: [id], onDelete: Cascade)
+
+  @@map("consent_revocations")
+}
+
+model AiUsage {
+  id           String   @id @default(cuid()) @map("id")
+  businessId   String   @map("business_id")
+  feature      String   @map("feature")
+  tier         String   @map("tier")
+  model        String   @map("model")
+  tokens       Int?     @map("tokens")
+  costCents    Int      @default(0) @map("cost_cents")
+  cacheHit     Boolean? @map("cache_hit")
+  latencyMs    Int?     @map("latency_ms")
+  createdAt    DateTime @default(now()) @map("created_at")
+  inputTokens  Int?     @map("input_tokens")
+  outputTokens Int?     @map("output_tokens")
+  requestId    String?  @map("request_id")
+  userId       String?  @map("user_id")
+  business     Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user         User?    @relation(fields: [userId], references: [id])
+
+  @@map("ai_usage")
+}
+
+model Lead {
+  id        String     @id @default(cuid()) @map("id")
+  source    LeadSource @map("source")
+  status    LeadStatus @default(NEW) @map("status")
+  name      String?    @map("name")
+  email     String?    @map("email")
+  message   String?    @map("message")
+  payload   Json?      @map("payload")
+  ip        String?    @map("ip")
+  ua        String?    @map("ua")
+  consent   Boolean?   @map("consent")
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  @@map("leads")
+}
+
+model Product {
+  id                String          @id @default(cuid()) @map("id")
+  businessId        String          @map("business_id")
+  clientId          String          @map("client_id")
+  name              String          @map("name")
+  sellPriceCents    Int             @map("sell_price_cents")
+  costPriceCents    Int?            @map("cost_price_cents")
+  imageUrl          String?         @map("image_url")
+  imageKey          String?         @map("image_key")
+  lowStockThreshold Int?            @map("low_stock_threshold")
+  status            ProductStatus   @default(ACTIVE) @map("status")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  orderLines        OrderLine[]
+  business          Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  stockMovements    StockMovement[]
+
+  @@unique([businessId, clientId])
+  @@map("products")
+}
+
+model StockMovement {
+  id         String            @id @default(cuid()) @map("id")
+  businessId String            @map("business_id")
+  clientId   String            @map("client_id")
+  productId  String            @map("product_id")
+  type       StockMovementType @map("type")
+  qtyDelta   Int               @map("qty_delta")
+  reason     String?           @map("reason")
+  orderId    String?           @map("order_id")
+  occurredAt DateTime          @map("occurred_at")
+  createdAt  DateTime          @default(now()) @map("created_at")
+  updatedAt  DateTime          @updatedAt @map("updated_at")
+  business   Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  order      Order?            @relation(fields: [orderId], references: [id])
+  product    Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, clientId])
+  @@map("stock_movements")
+}
+
+model Order {
+  id               String            @id @default(cuid()) @map("id")
+  businessId       String            @map("business_id")
+  clientId         String            @map("client_id")
+  orderNumber      String            @map("order_number")
+  customerId       String?           @map("customer_id")
+  status           OrderStatus       @default(DRAFT) @map("status")
+  channel          OrderChannel      @default(IN_PERSON) @map("channel")
+  paymentState     PaymentState      @default(PAID) @map("payment_state")
+  subtotalCents    Int               @map("subtotal_cents")
+  totalCents       Int               @map("total_cents")
+  fulfilmentStatus FulfilmentStatus? @map("fulfilment_status")
+  paymentRef       String?           @map("payment_ref")
+  escrowRef        String?           @map("escrow_ref")
+  occurredAt       DateTime          @map("occurred_at")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  lines            OrderLine[]
+  business         Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer         Customer?         @relation(fields: [customerId], references: [id])
+  stockMovements   StockMovement[]
+
+  @@unique([businessId, clientId])
+  @@unique([businessId, orderNumber])
+  @@map("orders")
+}
+
+model OrderLine {
+  id             String   @id @default(cuid()) @map("id")
+  businessId     String   @map("business_id")
+  orderId        String   @map("order_id")
+  productId      String?  @map("product_id")
+  nameSnapshot   String   @map("name_snapshot")
+  unitPriceCents Int      @map("unit_price_cents")
+  qty            Int      @map("qty")
+  lineTotalCents Int      @map("line_total_cents")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  business       Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product        Product? @relation(fields: [productId], references: [id])
+
+  @@map("order_lines")
+}
+
+model Customer {
+  id            String         @id @default(cuid()) @map("id")
+  businessId    String         @map("business_id")
+  clientId      String         @map("client_id")
+  name          String         @map("name")
+  phone         String?        @map("phone")
+  email         String?        @map("email")
+  consentId     String?        @map("consent_id")
+  notes         String?        @map("notes")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  consent       Consent?       @relation(fields: [consentId], references: [id])
+  orders        Order[]
+  conversations Conversation[]
+
+  @@unique([businessId, clientId])
+  @@map("customers")
+}
+
+model AnalyticsEvent {
+  id         String    @id @default(cuid()) @map("id")
+  businessId String?   @map("business_id")
+  event      String    @map("event")
+  properties Json?     @map("properties")
+  distinctId String    @map("distinct_id")
+  source     String    @map("source")
+  occurredAt DateTime  @map("occurred_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  business   Business? @relation(fields: [businessId], references: [id])
+
+  @@map("analytics_events")
+}
+
+// ─── M3-A WhatsApp BSP Plumbing ──────────────────────────────────────────────
+
+enum WhatsAppChannelMode {
+  SANDBOX
+  LIVE
+
+  @@map("whatsapp_channel_mode")
+}
+
+enum ConversationStatus {
+  OPEN
+  ARCHIVED
+
+  @@map("conversation_status")
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+
+  @@map("message_direction")
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  DOCUMENT
+  AUDIO
+  VIDEO
+  LOCATION
+  CONTACTS
+  TEMPLATE
+  INTERACTIVE
+  STATUS
+  UNSUPPORTED
+
+  @@map("message_type")
+}
+
+enum MessageStatus {
+  RECEIVED
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+
+  @@map("message_status")
+}
+
+enum SendClass {
+  TRANSACTIONAL
+  MARKETING
+
+  @@map("send_class")
+}
+
+enum InboundEventStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  UNROUTED
+  FAILED
+
+  @@map("inbound_event_status")
+}
+
+enum TemplateCategory {
+  UTILITY
+  MARKETING
+  AUTHENTICATION
+
+  @@map("template_category")
+}
+
+enum TemplateStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  PAUSED
+  DISABLED
+
+  @@map("template_status")
+}
+
+model WhatsAppChannel {
+  id                 String              @id @default(cuid()) @map("id")
+  businessId         String              @map("business_id")
+  phoneNumberId      String              @unique @map("phone_number_id")
+  displayPhoneNumber String              @map("display_phone_number")
+  mode               WhatsAppChannelMode @map("mode")
+  enabled            Boolean             @default(false) @map("enabled")
+  wabaId             String?             @map("waba_id")
+  lastInboundAt      DateTime?           @map("last_inbound_at")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  business          Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  conversations     Conversation[]
+  whatsappTemplates WhatsAppTemplate[]
+
+  @@unique([businessId, phoneNumberId])
+  @@index([businessId])
+  @@map("whatsapp_channels")
+}
+
+model Conversation {
+  id             String             @id @default(cuid()) @map("id")
+  businessId     String             @map("business_id")
+  channelId      String             @map("channel_id")
+  customerId     String?            @map("customer_id")
+  waContactId    String             @map("wa_contact_id")
+  lastInboundAt  DateTime?          @map("last_inbound_at")
+  lastOutboundAt DateTime?          @map("last_outbound_at")
+  status         ConversationStatus @default(OPEN) @map("status")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  channel  WhatsAppChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  customer Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  messages Message[]
+
+  @@unique([businessId, channelId, waContactId])
+  @@index([businessId])
+  @@index([customerId])
+  @@map("conversations")
+}
+
+model Message {
+  id                String           @id @default(cuid()) @map("id")
+  businessId        String           @map("business_id")
+  conversationId    String           @map("conversation_id")
+  providerMessageId String?          @map("provider_message_id")
+  direction         MessageDirection @map("direction")
+  type              MessageType      @map("type")
+  body              String?          @map("body")
+  mediaKey          String?          @map("media_key")
+  mediaMimeType     String?          @map("media_mime_type")
+  sendClass         SendClass?       @map("send_class")
+  templateName      String?          @map("template_name")
+  templateParams    Json?            @map("template_params")
+  status            MessageStatus    @map("status")
+  failureReason     String?          @map("failure_reason")
+  occurredAt        DateTime         @map("occurred_at")
+  deletedAt         DateTime?        @map("deleted_at")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+
+  business     Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, providerMessageId])
+  @@index([conversationId])
+  @@index([businessId])
+  @@index([businessId, occurredAt])
+  @@map("messages")
+}
+
+model WhatsAppInboundEvent {
+  id                String             @id @default(cuid()) @map("id")
+  businessId        String?            @map("business_id")
+  phoneNumberId     String?            @map("phone_number_id")
+  providerEventId   String             @unique @map("provider_event_id")
+  rawPayload        Json               @map("raw_payload")
+  signatureVerified Boolean            @map("signature_verified")
+  status            InboundEventStatus @default(PENDING) @map("status")
+  attempts          Int                @default(0) @map("attempts")
+  lastError         String?            @map("last_error")
+  receivedAt        DateTime           @default(now()) @map("received_at")
+  processedAt       DateTime?          @map("processed_at")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  business          Business?          @relation(fields: [businessId], references: [id])
+
+  @@index([status, receivedAt])
+  @@index([businessId])
+  @@map("whatsapp_inbound_events")
+}
+
+model WhatsAppTemplate {
+  id                 String           @id @default(cuid()) @map("id")
+  businessId         String           @map("business_id")
+  name               String           @map("name")
+  language           String           @map("language")
+  category           TemplateCategory @map("category")
+  status             TemplateStatus   @map("status")
+  bodyText           String           @map("body_text")
+  paramSchema        Json             @map("param_schema")
+  providerTemplateId String?          @map("provider_template_id")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  business          Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  whatsAppChannel   WhatsAppChannel? @relation(fields: [whatsAppChannelId], references: [id])
+  whatsAppChannelId String?
+
+  @@unique([businessId, name, language])
+  @@index([businessId])
+  @@map("whatsapp_templates")
+}
+
 enum MembershipRole {
   MERCHANT_OWNER
   MERCHANT_STAFF
@@ -56,245 +610,6 @@ enum LeadStatus {
 
   @@map("lead_status")
 }
-
-model User {
-  id                  String              @id @default(cuid()) @map("id")
-  email               String              @unique @map("email")
-  name                String              @map("name")
-  phone               String?             @unique @map("phone")
-  passwordHash        String              @map("password_hash")
-  status              UserStatus          @default(ACTIVE) @map("status")
-  failedAttempts      Int                 @default(0) @map("failed_attempts")
-  lockedUntil         DateTime?           @map("locked_until")
-  createdAt           DateTime            @default(now()) @map("created_at")
-  updatedAt           DateTime            @updatedAt @map("updated_at")
-
-  memberships         Membership[]
-  refreshTokens       RefreshToken[]
-  passwordResetTokens PasswordResetToken[]
-  phoneOtps           PhoneOtp[]
-  auditLogs           AuditLog[]
-  consents            Consent[]
-  aiUsages            AiUsage[]
-
-  @@map("users")
-}
-
-model RefreshToken {
-  id          String    @id @default(cuid()) @map("id")
-  tokenHash   String    @unique @map("token_hash")
-  userId      String    @map("user_id")
-  familyId    String    @map("family_id")
-  expiresAt   DateTime  @map("expires_at")
-  revokedAt   DateTime? @map("revoked_at")
-  replacedById String?  @map("replaced_by_id")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("refresh_tokens")
-}
-
-model PasswordResetToken {
-  id        String    @id @default(cuid()) @map("id")
-  userId    String    @map("user_id")
-  tokenHash String    @map("token_hash")
-  expiresAt DateTime  @map("expires_at")
-  usedAt    DateTime? @map("used_at")
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("password_reset_tokens")
-}
-
-model PhoneOtp {
-  id         String    @id @default(cuid()) @map("id")
-  userId     String?   @map("user_id")
-  phone      String    @map("phone")
-  purpose    String?   @map("purpose")
-  codeHash   String    @map("code_hash")
-  attempts   Int       @default(0) @map("attempts")
-  expiresAt  DateTime  @map("expires_at")
-  verifiedAt DateTime? @map("verified_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
-
-  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("phone_otps")
-}
-
-model Business {
-  id        String         @id @default(cuid()) @map("id")
-  name      String         @map("name")
-  slug      String?        @unique @map("slug")
-  status    BusinessStatus @default(ACTIVE) @map("status")
-  createdAt DateTime       @default(now()) @map("created_at")
-  updatedAt DateTime       @updatedAt @map("updated_at")
-
-  memberships     Membership[]
-  consents        Consent[]
-  aiUsages        AiUsage[]
-  auditLogs       AuditLog[]
-  errorLogs       ErrorLog[]
-  permissions     Permission[]
-  products        Product[]
-  stockMovements  StockMovement[]
-  orders          Order[]
-  orderLines      OrderLine[]
-  customers       Customer[]
-  analyticsEvents AnalyticsEvent[]
-
-  @@map("businesses")
-}
-
-model Membership {
-  id         String         @id @default(cuid()) @map("id")
-  userId     String         @map("user_id")
-  businessId String         @map("business_id")
-  role       MembershipRole @default(MERCHANT_STAFF) @map("role")
-  permissions String[]      @map("permissions")
-  createdAt  DateTime       @default(now()) @map("created_at")
-  updatedAt  DateTime       @updatedAt @map("updated_at")
-
-  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, businessId])
-  @@map("memberships")
-}
-
-model Permission {
-  id          String   @id @default(cuid()) @map("id")
-  key         String   @unique @map("key")
-  description String?  @map("description")
-  businessId  String?  @map("business_id")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-
-  business Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
-
-  @@map("permissions")
-}
-
-model AuditLog {
-  id        String   @id @default(cuid()) @map("id")
-  userId    String?  @map("user_id")
-  businessId String? @map("business_id")
-  action    String   @map("action")
-  entity    String   @map("entity")
-  entityId  String?  @map("entity_id")
-  changes   Json?    @map("changes")
-  ipAddress String?  @map("ip_address")
-  userAgent String?  @map("user_agent")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  user     User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
-  business Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
-
-  @@map("audit_logs")
-}
-
-model ErrorLog {
-  id         String   @id @default(cuid()) @map("id")
-  businessId String?  @map("business_id")
-  code       String   @map("code")
-  message    String   @map("message")
-  stack      String?  @map("stack")
-  context    Json?    @map("context")
-  commitSha  String?  @map("commit_sha")
-  createdAt  DateTime @default(now()) @map("created_at")
-
-  business Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
-
-  @@map("error_logs")
-}
-
-model Setting {
-  id        String   @id @default(cuid()) @map("id")
-  key       String   @map("key")
-  value     String   @map("value")
-  isSecret  Boolean  @default(false) @map("is_secret")
-  businessId String  @map("business_id")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@unique([key, businessId])
-  @@map("settings")
-}
-
-model Consent {
-  id        String        @id @default(cuid()) @map("id")
-  businessId String       @map("business_id")
-  userId    String?       @map("user_id")
-  purpose   String        @map("purpose")
-  status    ConsentStatus @default(GRANTED) @map("status")
-  grantedAt DateTime      @default(now()) @map("granted_at")
-  createdAt DateTime      @default(now()) @map("created_at")
-  updatedAt DateTime      @updatedAt @map("updated_at")
-
-  business     Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  user         User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
-  revocations  ConsentRevocation[]
-  customers    Customer[]
-
-  @@map("consents")
-}
-
-model ConsentRevocation {
-  id        String   @id @default(cuid()) @map("id")
-  consentId String   @map("consent_id")
-  reason    String?  @map("reason")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  consent Consent @relation(fields: [consentId], references: [id], onDelete: Cascade)
-
-  @@map("consent_revocations")
-}
-
-model AiUsage {
-  id           String   @id @default(cuid()) @map("id")
-  businessId   String   @map("business_id")
-  userId       String?  @map("user_id")
-  feature      String   @map("feature")
-  tier         String   @map("tier")
-  model        String   @map("model")
-  inputTokens  Int?     @map("input_tokens")
-  outputTokens Int?     @map("output_tokens")
-  tokens       Int?     @map("tokens")
-  costCents    Int      @default(0) @map("cost_cents")
-  cacheHit     Boolean? @map("cache_hit")
-  latencyMs    Int?     @map("latency_ms")
-  requestId    String?  @map("request_id")
-  createdAt    DateTime @default(now()) @map("created_at")
-
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  user     User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-
-  @@map("ai_usage")
-}
-
-model Lead {
-  id        String     @id @default(cuid()) @map("id")
-  source    LeadSource @map("source")
-  status    LeadStatus @default(NEW) @map("status")
-  name      String?    @map("name")
-  email     String?    @map("email")
-  message   String?    @map("message")
-  payload   Json?      @map("payload")
-  ip        String?    @map("ip")
-  ua        String?    @map("ua")
-  consent   Boolean?   @map("consent")
-  createdAt DateTime   @default(now()) @map("created_at")
-  updatedAt DateTime   @updatedAt @map("updated_at")
-
-  @@map("leads")
-}
-
-// ─── M2 Commerce Core ────────────────────────────────────────────────────────
 
 enum ProductStatus {
   ACTIVE
@@ -352,130 +667,4 @@ enum SyncOpStatus {
   REJECTED
 
   @@map("sync_op_status")
-}
-
-model Product {
-  id                 String        @id @default(cuid()) @map("id")
-  businessId         String        @map("business_id")
-  clientId           String        @map("client_id")
-  name               String        @map("name")
-  sellPriceCents     Int           @map("sell_price_cents")
-  costPriceCents     Int?          @map("cost_price_cents")
-  imageUrl           String?       @map("image_url")
-  imageKey           String?       @map("image_key")
-  lowStockThreshold  Int?          @map("low_stock_threshold")
-  status             ProductStatus @default(ACTIVE) @map("status")
-  createdAt          DateTime      @default(now()) @map("created_at")
-  updatedAt          DateTime      @updatedAt @map("updated_at")
-
-  business       Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  stockMovements StockMovement[]
-  orderLines     OrderLine[]
-
-  @@unique([businessId, clientId])
-  @@map("products")
-}
-
-model StockMovement {
-  id         String            @id @default(cuid()) @map("id")
-  businessId String            @map("business_id")
-  clientId   String            @map("client_id")
-  productId  String            @map("product_id")
-  type       StockMovementType @map("type")
-  qtyDelta   Int               @map("qty_delta")
-  reason     String?           @map("reason")
-  orderId    String?           @map("order_id")
-  occurredAt DateTime          @map("occurred_at")
-  createdAt  DateTime          @default(now()) @map("created_at")
-  updatedAt  DateTime          @updatedAt @map("updated_at")
-
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  order    Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
-
-  @@unique([businessId, clientId])
-  @@map("stock_movements")
-}
-
-model Order {
-  id               String           @id @default(cuid()) @map("id")
-  businessId       String           @map("business_id")
-  clientId         String           @map("client_id")
-  orderNumber      String           @map("order_number")
-  customerId       String?          @map("customer_id")
-  status           OrderStatus      @default(DRAFT) @map("status")
-  channel          OrderChannel     @default(IN_PERSON) @map("channel")
-  paymentState     PaymentState     @default(PAID) @map("payment_state")
-  subtotalCents    Int              @map("subtotal_cents")
-  totalCents       Int              @map("total_cents")
-  fulfilmentStatus FulfilmentStatus? @map("fulfilment_status")
-  paymentRef       String?          @map("payment_ref")
-  escrowRef        String?          @map("escrow_ref")
-  occurredAt       DateTime         @map("occurred_at")
-  createdAt        DateTime         @default(now()) @map("created_at")
-  updatedAt        DateTime         @updatedAt @map("updated_at")
-
-  business       Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  customer       Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  lines          OrderLine[]
-  stockMovements StockMovement[]
-
-  @@unique([businessId, clientId])
-  @@unique([businessId, orderNumber])
-  @@map("orders")
-}
-
-model OrderLine {
-  id             String  @id @default(cuid()) @map("id")
-  businessId     String  @map("business_id")
-  orderId        String  @map("order_id")
-  productId      String? @map("product_id")
-  nameSnapshot   String  @map("name_snapshot")
-  unitPriceCents Int     @map("unit_price_cents")
-  qty            Int     @map("qty")
-  lineTotalCents Int     @map("line_total_cents")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  order    Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product  Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
-
-  @@map("order_lines")
-}
-
-model Customer {
-  id         String   @id @default(cuid()) @map("id")
-  businessId String   @map("business_id")
-  clientId   String   @map("client_id")
-  name       String   @map("name")
-  phone      String?  @map("phone")
-  email      String?  @map("email")
-  consentId  String?  @map("consent_id")
-  notes      String?  @map("notes")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
-
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  consent  Consent? @relation(fields: [consentId], references: [id], onDelete: SetNull)
-  orders   Order[]
-
-  @@unique([businessId, clientId])
-  @@map("customers")
-}
-
-model AnalyticsEvent {
-  id         String   @id @default(cuid()) @map("id")
-  businessId String?  @map("business_id")
-  event      String   @map("event")
-  properties Json?    @map("properties")
-  distinctId String   @map("distinct_id")
-  source     String   @map("source")
-  occurredAt DateTime @map("occurred_at")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
-
-  business Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
-
-  @@map("analytics_events")
 }
