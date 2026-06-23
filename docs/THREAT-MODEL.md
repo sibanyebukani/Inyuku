@@ -23,7 +23,7 @@ Plus two cross-cutting surfaces modelled here: **auth (JWT rotation / cookies)**
 | Auth (JWT rotation / cookie) | Reviewed in M1; sign-off with the M1 backend baseline | M1 |
 | PII storage (Postgres/R2, EU) | Folded into the EA-ADR-015 pre-production-PII gate (bukani-compliance + security) | Before production PII |
 | **M2 Commerce Core (sync/idempotency + RBAC cost-split + customer PII + PostHog)** | **REQUIRED** | **Before M2 GA** |
-| **M3-A WhatsApp/360dialog BSP plumbing (webhook signature/replay + tenant-routing)** | **REQUIRED** (design-gate) | **Before M3-A contract-freeze** (sandbox); live PII send re-gated at cutover |
+| **M3-A WhatsApp/360dialog BSP plumbing (webhook signature/replay + tenant-routing)** | **APPROVED-WITH-CONDITIONS → 5 conditions IMPLEMENTED in M3-A** (merged PR #11) | Design-gate cleared at contract-freeze; **M3-A merged (sandbox)**; live PII send re-gated at cutover (EA-ADR-015) |
 
 AI-0/gateway-only work (no tool use, no customer-facing action) does **not** need the agent gate (EA-ADR-012).
 
@@ -193,13 +193,13 @@ warn if `NODE_ENV=production` and `TRUSTED_PROXY_HOPS` is unset.
 - If M3-B order-capture is wired to inbound events such that a webhook can directly mutate stock/orders → re-confirm the replay/idempotency chain end-to-end (double-apply at the commerce layer).
 
 ### Verdict
-**APPROVED-WITH-CONDITIONS** — proceed to M3-A contract-freeze provided the architect encodes the controls below. No unmitigated high-severity threat remains *for the sandbox slice*; the one **Conditional** item (DoS async-ack) and the **CRITICAL** tenant-routing item are accepted **only if** baked into the contract.
+**APPROVED-WITH-CONDITIONS — the 5 conditions are now implemented in M3-A** (merged PR #11 / `e530574`; sandbox slice). No unmitigated high-severity threat remains *for the sandbox slice*; the one **Conditional** item (DoS async-ack) and the **CRITICAL** tenant-routing item were accepted on the conditions below being baked into the contract — which they were (`docs/specs/2026-06-22-m3a-bsp-plumbing-contracts.md`) and shipped in code.
 
-**Conditions the architect / KIMI must satisfy (contract-level):**
-1. **Signature verification before parse:** HMAC-SHA256 over the **raw** request body vs `X-Hub-Signature-256`, **constant-time compare**, **fail-closed (401)** before any parse/DB write. App secret + verify token in encrypted `Setting` (`whatsapp.webhook.appSecret`, `whatsapp.webhook.verifyToken`) — never env-plaintext, never in code, never in a response.
-2. **Idempotent ingest:** `Message` carries the **provider message/event id**, `@@unique([businessId, providerMessageId])`, redelivery = `ON CONFLICT DO NOTHING` no-op. Advisory **±5-min** signature-freshness/replay window where a trustworthy provider timestamp exists.
-3. **Server-side tenant routing:** an Inyuku-owned **phone-number-id → `businessId`** map (`WhatsAppChannel` table) is the **only** tenant source; **no `businessId`/tenant field is ever read from the payload**; routing runs **after** verification; **unmapped number → reject + audit**.
-4. **Logging/PII:** chassis `logger` + `pii-mask` mandatory — **raw message bodies + phone numbers never logged**; audit `(whatsapp_message, RECEIVE|SEND)`, `(whatsapp_webhook, VERIFY_FAILED|UNROUTED)` with masked metadata.
-5. **DoS / async-ack (architect decision required):** webhook **fast-acks** (verify → persist durably → 2xx) and processes heavy work **async**; architect to rule **durable outbox vs a NEW BullMQ queue** (BullMQ is ADR-007-scoped to orders/fulfilment — a webhook queue is out-of-scope and needs an explicit decision). Redis rate-limit on the route, keyed on resolved tenant + `req.ip` (honour `TRUSTED_PROXY_HOPS`), with a global per-edge ceiling.
+**Conditions the architect / KIMI must satisfy (contract-level) — all IMPLEMENTED in M3-A:**
+1. ✅ **Signature verification before parse:** HMAC-SHA256 over the **raw** request body vs `X-Hub-Signature-256`, **constant-time compare**, **fail-closed (401)** before any parse/DB write. App secret + verify token in encrypted `Setting` (`whatsapp.webhook.appSecret`, `whatsapp.webhook.verifyToken`) — never env-plaintext, never in code, never in a response. *(Implemented: `whatsapp-webhook.routes.ts` scoped raw-body parser + `whatsapp-signature.ts`.)*
+2. ✅ **Idempotent ingest:** `Message` carries the **provider message/event id**, `@@unique([businessId, providerMessageId])`, redelivery = `ON CONFLICT DO NOTHING` no-op; event-level `WhatsAppInboundEvent.providerEventId` unique. Advisory **±5-min** signature-freshness/replay window where a trustworthy provider timestamp exists. *(ADR-INY-018.)*
+3. ✅ **Server-side tenant routing:** an Inyuku-owned **phone-number-id → `businessId`** map (`WhatsAppChannel`, `phoneNumberId` globally unique) is the **only** tenant source; **no `businessId`/tenant field is ever read from the payload**; routing runs **after** verification (in the drainer); **unmapped number → `UNROUTED` + audit**. *(ADR-INY-019.)*
+4. ✅ **Logging/PII:** chassis `logger` + `pii-mask` mandatory — **raw message bodies + phone numbers never logged**; audit `(whatsapp_message, RECEIVE|SEND)`, `(whatsapp_webhook, VERIFY_FAILED|UNROUTED)` with masked metadata.
+5. ✅ **DoS / async-ack:** webhook **fast-acks** (verify → persist durably to the `WhatsAppInboundEvent` outbox → 2xx) and processes heavy work **async** (interval drainer, `FOR UPDATE SKIP LOCKED`). Architect ruled **durable Postgres outbox, NOT a new BullMQ queue** (ADR-INY-017; ADR-007 scope preserved). Redis rate-limit on the route, keyed on `req.ip` (honour `TRUSTED_PROXY_HOPS`) with a global per-edge ceiling.
 
 **Production (live-number) sign-off is a separate gate** — folded into the EA-ADR-015 360dialog sub-processor assessment + DPA + EU-pin and the §7.3 consent ruling; **no production WhatsApp PII flows until those clear** (mirrors PostHog: ships against the sandbox, live messaging stays dark).
