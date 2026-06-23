@@ -2214,6 +2214,63 @@
         }
       }
     },
+    "/v1/businesses/{businessId}/whatsapp/conversations/{id}/share-catalog": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "productIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "sendClass": {
+                    "type": "string",
+                    "enum": [
+                      "TRANSACTIONAL",
+                      "MARKETING"
+                    ]
+                  }
+                },
+                "required": [
+                  "sendClass"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "businessId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
     "/v1/businesses/{businessId}/whatsapp/templates": {
       "get": {
         "parameters": [

@@ -18,6 +18,7 @@ import {
   updateChannel,
 } from '../../services/whatsapp-channel.service.js';
 import { sendWhatsAppMessage } from '../../services/whatsapp-send.service.js';
+import { composeCatalogText } from '../../services/whatsapp-catalog-share.service.js';
 
 type BizParams = { businessId: string };
 type ChannelParams = { businessId: string; id: string };
@@ -77,6 +78,11 @@ const SendMessageBody = z.object({
   templateName: z.string().optional(),
   templateParams: z.record(z.unknown()).optional(),
   language: z.string().optional(),
+});
+
+const ShareCatalogBody = z.object({
+  productIds: z.array(z.string().min(1)).optional(),
+  sendClass: z.enum(['TRANSACTIONAL', 'MARKETING']),
 });
 
 const ConversationListQuery = z.object({
@@ -237,6 +243,30 @@ export default async function whatsappRoutes(app: FastifyInstance) {
       if (result.error) {
         return okEnvelope({ message: result.message, error: result.error });
       }
+      return okEnvelope({ message: result.message });
+    },
+  );
+
+  app.post(
+    '/v1/businesses/:businessId/whatsapp/conversations/:id/share-catalog',
+    {
+      preHandler: [app.authenticate, app.requirePermission({ permission: 'whatsapp:send' })],
+      schema: { body: ShareCatalogBody },
+    },
+    async (req) => {
+      const { businessId, id } = req.params as ConversationParams;
+      const body = req.body as z.infer<typeof ShareCatalogBody>;
+      // tenant-validate the conversation (fail-closed, M3-A pattern)
+      const conv = await prisma.conversation.findUnique({ where: { id } });
+      if (!conv || conv.businessId !== businessId) throw new NotFoundError('Conversation not found');
+
+      const text = await composeCatalogText(businessId, body.productIds);
+      const result = await sendWhatsAppMessage(businessId, id, {
+        type: 'TEXT',
+        sendClass: body.sendClass,
+        body: text,
+      });
+      if (result.error) return okEnvelope({ message: result.message, error: result.error });
       return okEnvelope({ message: result.message });
     },
   );
