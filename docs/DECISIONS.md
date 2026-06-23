@@ -491,3 +491,129 @@ updates, conflicts resolve by **last-writer-wins on `occurredAt`**. The append-o
 - Server-generated IDs only (not retry-safe offline; can't dedupe client replays).
 - CRDT/vector-clock convergence (over-engineered for M2; LWW + append-only ledger suffices).
 - All-or-nothing batch (one bad op fails the whole queue; poor offline UX).
+
+---
+
+## ADR-INY-017 — Inbound WhatsApp webhook async-ack via a durable Postgres outbox (not a new BullMQ queue)
+
+**Date:** 2026-06-22
+**Status:** Accepted (M3-A WhatsApp BSP plumbing)
+**Decided by:** bukani-architect (Inyuku)
+**References:** ADR-007 (BullMQ scoped to orders/fulfilment only), EA-ADR-014 (360dialog BSP topology), `docs/THREAT-MODEL.md` §7 (DoS condition 5 — explicit architect decision required); M3-A contracts (`docs/specs/2026-06-22-m3a-bsp-plumbing-contracts.md`)
+
+### Context
+The 360dialog inbound webhook is a public, unauthenticated network edge. The security gate (THREAT-MODEL §7,
+DoS) requires the endpoint to **fast-ack** (verify → persist durably → 2xx) and do heavy work async, and
+**explicitly routes the choice — durable outbox vs a NEW BullMQ queue — to the architect**, because BullMQ is
+ADR-007-scoped to the orders/fulfilment module only and a webhook queue would extend that scope.
+
+### Decision
+Use a **durable Postgres outbox table (`WhatsAppInboundEvent`)** drained by an interval sweeper, **NOT** a new
+BullMQ queue. The verified raw event is persisted to the outbox (with `providerEventId` unique) **before** the
+fast 200; an interval worker claims `PENDING` rows (`FOR UPDATE SKIP LOCKED`), resolves the tenant, persists
+`Conversation`/`Message`, and marks `PROCESSED`/`UNROUTED`/`FAILED` with bounded retry.
+
+### Consequences
+- The verified event lives in the **same transactional/durable boundary as `Message`** — a Redis flush or
+  load-shedding event does **not** lose webhooks (Postgres-durable). Replay-safe via the same unique
+  constraints (ADR-INY-018).
+- **ADR-007's BullMQ scope is preserved** — no second queue infrastructure for M3-A.
+- **Re-eval trigger:** if sustained inbound volume needs fan-out/priority/backoff a poller can't give,
+  promote to a dedicated queue under a follow-up ADR (and reconcile ADR-007).
+
+### Alternatives rejected
+- A new BullMQ webhook queue (extends ADR-007 scope; Redis-durability is weaker than Postgres for a
+  load-shedding environment; more infra for the M3-A volume).
+- Synchronous processing inside the request (fails the fast-ack requirement; risks 360dialog retry storms).
+
+---
+
+## ADR-INY-018 — Inbound idempotency on the provider message/event id (distinct from the M2 client-`clientId`)
+
+**Date:** 2026-06-22
+**Status:** Accepted (M3-A WhatsApp BSP plumbing)
+**Decided by:** bukani-architect (Inyuku)
+**References:** ADR-INY-016 (M2 client-`clientId` sync idempotency), `docs/THREAT-MODEL.md` §7 (Replay condition 2); M3-A contracts (`docs/specs/2026-06-22-m3a-bsp-plumbing-contracts.md`)
+
+### Context
+360dialog retries webhook delivery as normal behaviour, and a forged replay must be a safe no-op. The M2
+idempotency convention (`clientId`, ADR-INY-016) is **client-generated** for offline-creatable merchant
+entities — but a webhook has no Inyuku client; its dedup key is the **provider's** id.
+
+### Decision
+Inbound dedup is on the **provider message/event id**: `Message @@unique([businessId, providerMessageId])`
+(per-message) and `WhatsAppInboundEvent @@unique([providerEventId])` (whole-event), both inserted
+`ON CONFLICT DO NOTHING`. An **advisory ±5-min replay window** rejects events older than the skew **where a
+trustworthy provider timestamp exists**; where it does not, idempotency is the primary control. This is
+**distinct** from and does not replace the M2 `clientId` convention (which remains for M3-B offline-creatable
+entities).
+
+### Consequences
+- Redelivery/replay is a deterministic no-op; the public endpoint cannot be made to double-apply.
+- Two clearly-separated idempotency models in the codebase: provider-id (channel ingest) vs client-id
+  (offline merchant writes) — documented so they are never conflated.
+
+### Alternatives rejected
+- Reusing `clientId` for webhooks (no Inyuku client generates the id; semantically wrong).
+- Timestamp-only replay defence (insufficient without a trustworthy provider timestamp; idempotency is the
+  durable control).
+
+---
+
+## ADR-INY-019 — Server-side WhatsApp tenant routing via an Inyuku-owned phone-number-id → businessId map
+
+**Date:** 2026-06-22
+**Status:** Accepted (M3-A WhatsApp BSP plumbing)
+**Decided by:** bukani-architect (Inyuku); commissioned by `bukani-security` (THREAT-MODEL §7, CRITICAL)
+**References:** ADR-005 (tenant root), `docs/THREAT-MODEL.md` §7 (Elevation/tenant-routing — CRITICAL condition 3); M3-A contracts (`docs/specs/2026-06-22-m3a-bsp-plumbing-contracts.md`)
+
+### Context
+The inbound webhook has no JWT/cookie/RBAC. If the tenant were resolved from any attacker-controllable
+payload field, a forged (or signature-stripped) request could write to the wrong `businessId` — a
+confused-deputy cross-tenant PII/commerce breach. THREAT-MODEL §7 flags this as the **CRITICAL** threat.
+
+### Decision
+Tenant is resolved **only** by a server-side lookup of the WhatsApp **phone-number-id** (delivered by
+360dialog in the payload metadata) against an **Inyuku-owned `WhatsAppChannel` map**
+(`phoneNumberId` **globally unique** → `businessId`). **No `businessId` or tenant field is ever read from the
+payload.** Routing runs **only after** signature verification passes. An **unmapped phone-number-id is
+rejected** (no auto-provision) and audited `(whatsapp_webhook, UNROUTED)`. Channel provisioning is
+admin/owner-only (`whatsapp:manage_channel`).
+
+### Consequences
+- Cross-tenant routing is unspoofable: the map is Inyuku-controlled, not payload-derived; the unique
+  `phoneNumberId` guarantees one tenant per number.
+- A webhook can never create a tenant; misdirected/unknown numbers fail closed and are forensically logged.
+
+### Alternatives rejected
+- Trusting a tenant hint in the payload (the exact confused-deputy vector the gate forbids).
+- Auto-provisioning a channel on first unknown number (lets an attacker spray tenants into existence).
+
+---
+
+## ADR-INY-020 — Approved-template registry is table-backed (`WhatsAppTemplate`), not Setting-backed
+
+**Date:** 2026-06-22
+**Status:** Accepted (M3-A WhatsApp BSP plumbing)
+**Decided by:** bukani-architect (Inyuku)
+**References:** ADR-INY-011 (`Setting` table), M3 brief §6 (M3-S7 — approved-template constraint); M3-A contracts (`docs/specs/2026-06-22-m3a-bsp-plumbing-contracts.md`)
+
+### Context
+WhatsApp requires that messages outside the 24h window use only Meta-**approved** templates with declared
+parameters. M3-A needs a single source of which templates are sendable, their parameter schemas, status, and
+language — queryable, per-tenant, RBAC-gated, and auditable.
+
+### Decision
+Model the registry as a **`WhatsAppTemplate` table** (per-`businessId`, `@@unique([businessId, name,
+language])`, `status` with only `APPROVED` sendable, `paramSchema` Json, `category`→`sendClass` mapping),
+**not** a Setting blob. A send must resolve an `APPROVED` row and satisfy its `paramSchema`, else `422`;
+sending an unregistered/unapproved template is impossible. Template CRUD is `whatsapp:manage_channel`.
+
+### Consequences
+- Per-tenant, parameter-validated, status-tracked, RBAC- and audit-able — none of which a `Setting` blob
+  expresses cleanly. Status enables the Meta approval lifecycle (`PENDING`/`APPROVED`/`REJECTED`/`PAUSED`).
+- Reuses the M2 audit pattern: `(whatsapp_template, CREATE|UPDATE|DELETE)`.
+
+### Alternatives rejected
+- Setting-backed JSON registry (no per-row RBAC/audit, no clean parameter validation, no status lifecycle).
+- Hard-coded template list in code (not per-tenant; needs a deploy to change; no merchant self-service).
