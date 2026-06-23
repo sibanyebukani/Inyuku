@@ -1,11 +1,12 @@
 # Inyuku Digital — Database Schema (SCHEMA.md)
 
 > **Owner:** bukani-docs · **Source of truth:** Prisma (`schema.prisma`). This doc is the human-readable
-> mirror of the schema: the **M1 baseline** (bukani-architect, 2026-06-19) plus the **M2 Commerce Core**
-> contracts (bukani-architect, 2026-06-21). When Prisma and this doc disagree, **Prisma wins** — file a
-> docs fix.
+> mirror of the schema: the **M1 baseline** (bukani-architect, 2026-06-19), the **M2 Commerce Core**
+> contracts (bukani-architect, 2026-06-21), and the **M3-A WhatsApp BSP plumbing** tables (merged PR #11 /
+> `e530574`). When Prisma and this doc disagree, **Prisma wins** — file a docs fix.
 > **Stack:** Fastify 5 (TypeScript) + **Prisma 6** on Railway Postgres 16 (EU). See `docs/API.md`, `CLAUDE.md`.
 > **M2 contracts:** `docs/specs/2026-06-21-m2-commerce-core-contracts.md`.
+> **M3-A contracts:** `docs/specs/2026-06-22-m3a-bsp-plumbing-contracts.md`.
 
 ## Conventions (apply to every table)
 
@@ -51,6 +52,15 @@
 | `PaymentState` *(M2)* | `PAID`, `UNPAID` (manual in M2; gateway state lands in M4) |
 | `FulfilmentStatus` *(M2)* | deferred-lifecycle seam — nullable on `Order`, no M2 transitions |
 | `SyncOpStatus` *(M2)* | `APPLIED`, `DUPLICATE`, `CONFLICT`, `REJECTED` (per-op batch-sync result) |
+| `WhatsAppChannelMode` *(M3-A)* | `SANDBOX`, `LIVE` (sandbox-first; `LIVE` is the cutover seam) |
+| `ConversationStatus` *(M3-A)* | `OPEN`, `ARCHIVED` |
+| `MessageDirection` *(M3-A)* | `INBOUND`, `OUTBOUND` |
+| `MessageType` *(M3-A)* | `TEXT`, `IMAGE`, `DOCUMENT`, `AUDIO`, `VIDEO`, `LOCATION`, `CONTACTS`, `TEMPLATE`, `INTERACTIVE`, `STATUS`, `UNSUPPORTED` |
+| `MessageStatus` *(M3-A)* | `RECEIVED`, `QUEUED`, `SENT`, `DELIVERED`, `READ`, `FAILED` (inbound lands `RECEIVED`; outbound walks `QUEUED → SENT → DELIVERED → READ` / `FAILED`) |
+| `SendClass` *(M3-A)* | `TRANSACTIONAL`, `MARKETING` (required input on every OUTBOUND send; never inferred — compliance seam) |
+| `InboundEventStatus` *(M3-A)* | `PENDING`, `PROCESSING`, `PROCESSED`, `UNROUTED`, `FAILED` (durable outbox lifecycle) |
+| `TemplateCategory` *(M3-A)* | `UTILITY`, `MARKETING`, `AUTHENTICATION` |
+| `TemplateStatus` *(M3-A)* | `DRAFT`, `PENDING`, `APPROVED`, `REJECTED`, `PAUSED`, `DISABLED` (only `APPROVED` is sendable) |
 
 > `AI_AGENT` is the least-privilege principal for the tool-using Business Agent — **read + `ai:invoke`
 > only**, no writes (EA-ADR-012). See `docs/API.md` § role map.
@@ -125,6 +135,13 @@ the full key list.
   | `stock_movement` *(M2)* | `CREATE` | a stock movement posted (append-only ledger) |
   | `order` *(M2)* | `CREATE`, `UPDATE` | order created / completed / voided / payment-state changed |
   | `customer` *(M2)* | `CREATE`, `UPDATE` | customer added / edited |
+  | `whatsapp_message` *(M3-A)* | `RECEIVE`, `SEND` | inbound message persisted / outbound message sent (masked metadata only) |
+  | `whatsapp_webhook` *(M3-A)* | `VERIFY_FAILED`, `UNROUTED` | signature/verify failure at the edge / inbound for an unmapped `phoneNumberId` |
+  | `whatsapp_channel` *(M3-A)* | `CREATE`, `UPDATE`, `DELETE` | channel provisioned / configured (incl. `enabled` / `mode` toggle) / removed |
+  | `whatsapp_template` *(M3-A)* | `CREATE`, `UPDATE`, `DELETE` | approved-template registry CRUD |
+
+  > All M3-A WhatsApp audit tuples carry **masked metadata only** (raw `Message.body` and customer phone
+  > numbers are never logged or audited — THREAT-MODEL §7 control 4).
 
   > The tuple set is the audit contract; new entities/actions are added as modules land — keep this table
   > and the route handlers in sync.
@@ -324,6 +341,137 @@ later catalog price change never rewrites a past sale.
 
 ---
 
+## WhatsApp BSP plumbing tables (M3-A)
+
+> Mirror of the frozen M3-A contract (`docs/specs/2026-06-22-m3a-bsp-plumbing-contracts.md`) and the
+> shipped `schema.prisma` (M3-A, PR #11 / `e530574`). Every table has a `cuid` PK and snake_case `@@map`;
+> `businessId` is **non-null** on the tenant-bound tables and **nullable** on `WhatsAppInboundEvent` (the
+> edge-durability outbox, written before the tenant is resolved). **No money in M3-A** — the ZAR-`Int`-cents
+> convention is inherited for M3-B commerce-over-chat. M3-A idempotency is on the **provider message/event
+> id** (ADR-INY-018) — distinct from the M2 client-`clientId` convention.
+
+### Table: WhatsAppChannel
+**Purpose:** The **tenant routing map** — the only tenant source for an inbound webhook (ADR-INY-019). Also
+the per-business **sub-processor enable flag** (compliance seam) and SANDBOX/LIVE cutover seam.
+**PII fields:** `displayPhoneNumber` (the human msisdn — PII-masked in logs). **Tenancy:** `businessId`
+**non-null**.
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | cuid | Auto | PK |
+| `businessId` | cuid | Yes | Tenant FK |
+| `phoneNumberId` | text | Yes | WhatsApp/Meta phone-number-id (360dialog metadata) — the routing key, **globally `@unique`** (one tenant per number, unspoofable) |
+| `displayPhoneNumber` | text | Yes | Human msisdn (PII; masked in logs) |
+| `mode` | `WhatsAppChannelMode` | Yes | `SANDBOX` / `LIVE` |
+| `enabled` | Boolean | Yes (default `false`) | **Sub-processor enable flag.** LIVE send refused when `false` (`422 whatsapp_channel_disabled`); sandbox path always available. **Ships dark** (POPIA §7b) |
+| `wabaId` | text | No | WhatsApp Business Account id (provider metadata) |
+| `lastInboundAt` | timestamp | No | Most recent verified inbound on this channel |
+
+- Indexes: `phoneNumberId` **`@unique`** (global); `@@unique([businessId, phoneNumberId])` (defensive);
+  `businessId` standard.
+- Provisioning is admin/owner-only (`whatsapp:manage_channel`); a webhook **never auto-provisions** a
+  channel (unmapped `phoneNumberId` → reject + `(whatsapp_webhook, UNROUTED)`).
+- Relationships: belongs to `Business`; has many `Conversation`. `onDelete: Cascade` from `Business`.
+
+### Table: Conversation
+**Purpose:** One thread per `(business, channel, customer wa-id)`. Drives the 24h customer-care window.
+**PII fields:** `waContactId` (customer WhatsApp id / msisdn). **Tenancy:** `businessId` **non-null**.
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | cuid | Auto | PK |
+| `businessId` | cuid | Yes | Tenant FK |
+| `channelId` | cuid | Yes | FK → `WhatsAppChannel` |
+| `customerId` | cuid | No | FK → `Customer`, **nullable** (directory linkage deferred to M3-B; `onDelete: SetNull`) |
+| `waContactId` | text | Yes | Customer WhatsApp id / msisdn (**PII**) |
+| `lastInboundAt` | timestamp | No | Most recent verified inbound — drives the 24h session window |
+| `lastOutboundAt` | timestamp | No | Most recent outbound |
+| `status` | `ConversationStatus` | Yes (default `OPEN`) | `OPEN` / `ARCHIVED` |
+
+- Indexes: `@@unique([businessId, channelId, waContactId])` (one thread per customer per channel);
+  `businessId`; `customerId`.
+- Window state (`OPEN` / `CLOSED` + `windowExpiresAt`) is **computed** at read time from `lastInboundAt`,
+  not stored.
+- Relationships: belongs to `Business`, `WhatsAppChannel`, optional `Customer`; has many `Message`.
+
+### Table: Message
+**Purpose:** Inbound + outbound WhatsApp messages. **Append-only (soft-delete only).**
+**PII fields:** `body` (raw content — **never logged**). **Tenancy:** `businessId` **non-null**.
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | cuid | Auto | PK |
+| `businessId` | cuid | Yes | Tenant FK |
+| `conversationId` | cuid | Yes | FK → `Conversation` |
+| `providerMessageId` | text | No | BSP/Meta message id — the **idempotency key** (`@@unique([businessId, providerMessageId])`); nullable on outbound until the send is acknowledged |
+| `direction` | `MessageDirection` | Yes | `INBOUND` / `OUTBOUND` |
+| `type` | `MessageType` | Yes | `TEXT` / `IMAGE` / … / `TEMPLATE` / `STATUS` / `UNSUPPORTED` |
+| `body` | text | No | Raw message content (**PII**; never logged — THREAT-MODEL §7 control 4) |
+| `mediaKey` | text | No | R2 object key if media is fetched/stored (private-by-default; fetch may defer to M3-B) |
+| `mediaMimeType` | text | No | Media MIME type |
+| `sendClass` | `SendClass` | No | `TRANSACTIONAL` / `MARKETING`; **required on OUTBOUND** (set by the send call), null for inbound |
+| `templateName` | text | No | Set when `type = TEMPLATE` |
+| `templateParams` | Json | No | Bound template variables |
+| `status` | `MessageStatus` | Yes | inbound → `RECEIVED`; outbound `QUEUED → SENT → DELIVERED → READ` / `FAILED` |
+| `failureReason` | text | No | Generic failure code on send failure (full detail goes to `ErrorLog`, not here) |
+| `occurredAt` | timestamp | Yes | Provider timestamp where supplied (drives the advisory ±5-min replay window); else receipt time |
+| `deletedAt` | timestamp | No | Soft-delete + retention-purge marker (POPIA §6/§7b) |
+
+- Indexes: `@@unique([businessId, providerMessageId])`; `conversationId`; `businessId`;
+  `@@index([businessId, occurredAt])`.
+- Relationships: belongs to `Business`, `Conversation` (`onDelete: Cascade` from both).
+
+### Table: WhatsAppInboundEvent
+**Purpose:** The **durable Postgres outbox** (ADR-INY-017) — the fast-ack durability boundary. The verified
+raw event is persisted here **before** the 2xx, then drained async (a `setInterval` sweeper claiming
+`PENDING` rows `FOR UPDATE SKIP LOCKED`). **NOT** a BullMQ queue (respects ADR-007 scope; load-shedding
+resilient).
+**PII fields:** `rawPayload` (the verified raw body — masked in logs, never in responses). **Tenancy:**
+`businessId` **nullable** (written before routing resolves a tenant; the drainer sets it or marks
+`UNROUTED`).
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | cuid | Auto | PK |
+| `businessId` | cuid | No | Tenant FK — **nullable**; resolved by the drainer (`onDelete` default; no cascade) |
+| `phoneNumberId` | text | No | Extracted post-verify for routing by the drainer |
+| `providerEventId` | text | Yes | Webhook delivery/event id — **`@unique`** (whole-event dedup at the edge; `ON CONFLICT DO NOTHING`) |
+| `rawPayload` | Json | Yes | The verified raw body (signature already passed; **PII**) |
+| `signatureVerified` | Boolean | Yes | Always `true` for a persisted row (unverified never persists — control 1) |
+| `status` | `InboundEventStatus` | Yes (default `PENDING`) | `PENDING` / `PROCESSING` / `PROCESSED` / `UNROUTED` / `FAILED` |
+| `attempts` | Int | Yes (default 0) | Bounded-retry counter |
+| `lastError` | text | No | Last drain error |
+| `receivedAt` | timestamp | Yes (default now) | Edge receipt time |
+| `processedAt` | timestamp | No | When the drainer finished |
+
+- Indexes: `providerEventId` **`@unique`**; `@@index([status, receivedAt])` (drain query);
+  `@@index([businessId])`.
+- Relationships: optional `Business`.
+
+### Table: WhatsAppTemplate
+**Purpose:** The **approved-template registry** (ADR-INY-020) — the single source of which templates may be
+sent and their parameters. Table-backed (per-tenant, queryable, status-tracked, RBAC/audit-able), not
+Setting-backed.
+**PII fields:** none (`bodyText` is the template with `{{n}}` placeholders). **Tenancy:** `businessId`
+**non-null**.
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | cuid | Auto | PK |
+| `businessId` | cuid | Yes | Tenant FK |
+| `name` | text | Yes | Meta template name (`@@unique([businessId, name, language])`) |
+| `language` | text | Yes | BCP-47 / Meta locale (e.g. `en`, `zu`, `xh`, `st`, `af`) |
+| `category` | `TemplateCategory` | Yes | `UTILITY` / `MARKETING` / `AUTHENTICATION` (drives default `sendClass`) |
+| `status` | `TemplateStatus` | Yes | Only `APPROVED` is sendable |
+| `bodyText` | text | Yes | Template body with `{{n}}` placeholders (merchant preview; not PII) |
+| `paramSchema` | Json | Yes | Ordered parameter spec (count + names + types) the send call must satisfy |
+| `providerTemplateId` | text | No | BSP/Meta template id |
+
+- Indexes: `@@unique([businessId, name, language])`; `businessId`.
+- Relationships: belongs to `Business` (`onDelete: Cascade`).
+
+---
+
 ## Relationship summary
 
 ```
@@ -343,4 +491,10 @@ Product 1──* StockMovement | OrderLine (OrderLine.productId onDelete:SetNull
 Order 1──* OrderLine | StockMovement (SALE / SALE_REVERSAL)
 Customer 1──* Order ; Customer *──1? Consent (consentId nullable until ruling)
 AnalyticsEvent (first-party stream; business-nullable; no outward export)
+
+# WhatsApp BSP plumbing (M3-A)
+Business 1──* WhatsAppChannel | Conversation | Message | WhatsAppTemplate
+Business 1──*? WhatsAppInboundEvent (businessId nullable; durable outbox)
+WhatsAppChannel 1──* Conversation
+Conversation 1──* Message ; Conversation *──1? Customer (customerId nullable; onDelete:SetNull)
 ```
