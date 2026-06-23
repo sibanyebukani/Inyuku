@@ -74,12 +74,12 @@ model PhoneOtp {
 }
 
 model Business {
-  id                    String                 @id @default(cuid()) @map("id")
-  name                  String                 @map("name")
-  status                BusinessStatus         @default(ACTIVE) @map("status")
-  createdAt             DateTime               @default(now()) @map("created_at")
-  updatedAt             DateTime               @updatedAt @map("updated_at")
-  slug                  String?                @unique @map("slug")
+  id                    String                  @id @default(cuid()) @map("id")
+  name                  String                  @map("name")
+  status                BusinessStatus          @default(ACTIVE) @map("status")
+  createdAt             DateTime                @default(now()) @map("created_at")
+  updatedAt             DateTime                @updatedAt @map("updated_at")
+  slug                  String?                 @unique @map("slug")
   aiUsages              AiUsage[]
   analyticsEvents       AnalyticsEvent[]
   auditLogs             AuditLog[]
@@ -97,6 +97,7 @@ model Business {
   messages              Message[]
   whatsappInboundEvents WhatsAppInboundEvent[]
   whatsappTemplates     WhatsAppTemplate[]
+  autoReplyRules        WhatsAppAutoReplyRule[]
 
   @@map("businesses")
 }
@@ -284,6 +285,7 @@ model Order {
   clientId         String            @map("client_id")
   orderNumber      String            @map("order_number")
   customerId       String?           @map("customer_id")
+  conversationId   String?           @map("conversation_id")
   status           OrderStatus       @default(DRAFT) @map("status")
   channel          OrderChannel      @default(IN_PERSON) @map("channel")
   paymentState     PaymentState      @default(PAID) @map("payment_state")
@@ -298,10 +300,12 @@ model Order {
   lines            OrderLine[]
   business         Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
   customer         Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  conversation     Conversation?     @relation(fields: [conversationId], references: [id], onDelete: SetNull)
   stockMovements   StockMovement[]
 
   @@unique([businessId, clientId])
   @@unique([businessId, orderNumber])
+  @@index([conversationId])
   @@map("orders")
 }
 
@@ -444,6 +448,21 @@ enum TemplateStatus {
   @@map("template_status")
 }
 
+enum AutoReplyTrigger {
+  GREETING
+  KEYWORD
+  OUT_OF_HOURS
+
+  @@map("auto_reply_trigger")
+}
+
+enum AutoReplyAction {
+  SEND_TEXT
+  SHARE_CATALOG
+
+  @@map("auto_reply_action")
+}
+
 model WhatsAppChannel {
   id                 String              @id @default(cuid()) @map("id")
   businessId         String              @map("business_id")
@@ -456,8 +475,8 @@ model WhatsAppChannel {
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
 
-  business          Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  conversations     Conversation[]
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
 
   @@unique([businessId, phoneNumberId])
   @@index([businessId])
@@ -480,6 +499,7 @@ model Conversation {
   channel  WhatsAppChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
   customer Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
   messages Message[]
+  orders   Order[]
 
   @@unique([businessId, channelId, waContactId])
   @@index([businessId])
@@ -517,6 +537,29 @@ model Message {
   @@map("messages")
 }
 
+model WhatsAppAutoReplyRule {
+  id              String           @id @default(cuid()) @map("id")
+  businessId      String           @map("business_id")
+  channelId       String?          @map("channel_id")
+  trigger         AutoReplyTrigger @map("trigger")
+  enabled         Boolean          @default(false) @map("enabled")
+  keyword         String?          @map("keyword")
+  action          AutoReplyAction  @map("action")
+  replyText       String?          @map("reply_text")
+  hoursStart      String?          @map("hours_start")
+  hoursEnd        String?          @map("hours_end")
+  daysActive      Int[]            @map("days_active")
+  cooldownMinutes Int              @default(720) @map("cooldown_minutes")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([businessId, trigger, enabled])
+  @@map("whatsapp_auto_reply_rules")
+}
+
 model WhatsAppInboundEvent {
   id                String             @id @default(cuid()) @map("id")
   businessId        String?            @map("business_id")
@@ -551,7 +594,7 @@ model WhatsAppTemplate {
   createdAt          DateTime         @default(now()) @map("created_at")
   updatedAt          DateTime         @updatedAt @map("updated_at")
 
-  business          Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, name, language])
   @@index([businessId])
