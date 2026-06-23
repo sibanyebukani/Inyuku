@@ -36,4 +36,22 @@ describe('assertConsentGranted with customer context (Conditions 4/5, R1 seam)',
     const cust = await prisma.customer.create({ data: { businessId: bizA.id, clientId: `cc2-${Date.now()}`, name: 'C', consentId: consent.id } });
     await expect(assertConsentGranted(bizA.id, 'MARKETING', false, { customerId: cust.id })).rejects.toMatchObject({ statusCode: 403 });
   });
+
+  it('business-scoped consent picks the newest unrevoked grant and denies when all are revoked', async () => {
+    // Create an older revoked grant first so an unordered findFirst would pick it and deny.
+    const older = await prisma.consent.create({
+      data: { businessId: bizA.id, purpose: 'whatsapp:marketing', status: 'GRANTED', grantedAt: new Date('2024-01-01T00:00:00.000Z') },
+    });
+    await prisma.consentRevocation.create({ data: { consentId: older.id, reason: 'opt-out' } });
+    const newer = await prisma.consent.create({
+      data: { businessId: bizA.id, purpose: 'whatsapp:marketing', status: 'GRANTED', grantedAt: new Date('2024-06-01T00:00:00.000Z') },
+    });
+
+    // newest is unrevoked -> allow
+    await expect(assertConsentGranted(bizA.id, 'MARKETING', false, {})).resolves.toBeUndefined();
+
+    // revoke the newest too -> deny
+    await prisma.consentRevocation.create({ data: { consentId: newer.id, reason: 'opt-out' } });
+    await expect(assertConsentGranted(bizA.id, 'MARKETING', false, {})).rejects.toMatchObject({ statusCode: 403 });
+  });
 });

@@ -71,11 +71,12 @@ export async function assertConsentGranted(
       businessId,
       purpose,
       status: 'GRANTED',
+      revocations: { none: {} },
     },
-    include: { revocations: { orderBy: { createdAt: 'desc' }, take: 1 } },
+    orderBy: { grantedAt: 'desc' },
   });
 
-  if (!grant || grant.revocations.length > 0) {
+  if (!grant) {
     // Contract §9.2: emit the machine-readable code `whatsapp_consent_denied`
     // (parallel to the window/disabled gates), not the generic FORBIDDEN code.
     throw new AppError('whatsapp_consent_denied', 'WhatsApp consent not granted', 403);
