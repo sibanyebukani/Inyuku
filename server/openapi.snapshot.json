@@ -1397,12 +1397,21 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "clientId": {
+                  "channel": {
+                    "type": "string",
+                    "enum": [
+                      "IN_PERSON",
+                      "WHATSAPP",
+                      "ONLINE"
+                    ]
+                  },
+                  "conversationId": {
                     "type": "string",
                     "minLength": 1
                   },
                   "customerId": {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1
                   },
                   "status": {
                     "type": "string",
@@ -1440,14 +1449,18 @@
                     },
                     "minItems": 1
                   },
+                  "clientId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
                   "occurredAt": {
                     "type": "string",
                     "format": "date-time"
                   }
                 },
                 "required": [
-                  "clientId",
-                  "lines"
+                  "lines",
+                  "clientId"
                 ],
                 "additionalProperties": false
               }
