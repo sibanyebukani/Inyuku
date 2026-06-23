@@ -596,3 +596,42 @@ describe('share-catalog', () => {
     expect(msg!.body).toContain('—');
   });
 });
+
+describe('auto-reply rule CRUD', () => {
+  it('owner creates a KEYWORD rule', async () => {
+    const r = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/whatsapp/auto-reply-rules`,
+      headers: { ...authHeader(ownerToken), 'content-type': 'application/json' },
+      payload: { trigger: 'KEYWORD', keyword: 'hours', action: 'SEND_TEXT', replyText: 'We are open 9-5', enabled: true },
+    });
+    expect(r.statusCode).toBe(201);
+    expect(r.json().data.rule.keyword).toBe('hours');
+  });
+
+  it('rejects a KEYWORD rule with no keyword', async () => {
+    const r = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/whatsapp/auto-reply-rules`,
+      headers: { ...authHeader(ownerToken), 'content-type': 'application/json' },
+      payload: { trigger: 'KEYWORD', action: 'SEND_TEXT', replyText: 'x' },
+    });
+    expect(r.statusCode).toBe(400);
+  });
+
+  it('staff cannot create a rule (403)', async () => {
+    const r = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/whatsapp/auto-reply-rules`,
+      headers: { ...authHeader(staffToken), 'content-type': 'application/json' },
+      payload: { trigger: 'GREETING', action: 'SEND_TEXT', replyText: 'Hi' },
+    });
+    expect(r.statusCode).toBe(403);
+  });
+
+  it('staff can list rules (whatsapp:read)', async () => {
+    const r = await app.inject({ method: 'GET', url: `/v1/businesses/${bizA.id}/whatsapp/auto-reply-rules`, headers: authHeader(staffToken) });
+    expect(r.statusCode).toBe(200);
+    expect(Array.isArray(r.json().data.rules)).toBe(true);
+  });
+});

@@ -2271,6 +2271,219 @@
         }
       }
     },
+    "/v1/businesses/{businessId}/whatsapp/auto-reply-rules": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "businessId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "channelId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "nullable": true
+                  },
+                  "trigger": {
+                    "type": "string",
+                    "enum": [
+                      "GREETING",
+                      "KEYWORD",
+                      "OUT_OF_HOURS"
+                    ]
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "keyword": {
+                    "type": "string",
+                    "minLength": 1,
+                    "nullable": true
+                  },
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "SEND_TEXT",
+                      "SHARE_CATALOG"
+                    ]
+                  },
+                  "replyText": {
+                    "type": "string",
+                    "minLength": 1,
+                    "nullable": true
+                  },
+                  "hoursStart": {
+                    "type": "string",
+                    "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+                    "nullable": true
+                  },
+                  "hoursEnd": {
+                    "type": "string",
+                    "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+                    "nullable": true
+                  },
+                  "daysActive": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 7
+                    }
+                  },
+                  "cooldownMinutes": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "trigger",
+                  "action"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "businessId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/v1/businesses/{businessId}/whatsapp/auto-reply-rules/{id}": {
+      "patch": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "channelId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "nullable": true
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "keyword": {
+                    "type": "string",
+                    "minLength": 1,
+                    "nullable": true
+                  },
+                  "replyText": {
+                    "type": "string",
+                    "minLength": 1,
+                    "nullable": true
+                  },
+                  "hoursStart": {
+                    "type": "string",
+                    "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+                    "nullable": true
+                  },
+                  "hoursEnd": {
+                    "type": "string",
+                    "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+                    "nullable": true
+                  },
+                  "daysActive": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 7
+                    }
+                  },
+                  "cooldownMinutes": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "businessId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "delete": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "businessId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
     "/v1/businesses/{businessId}/whatsapp/templates": {
       "get": {
         "parameters": [
