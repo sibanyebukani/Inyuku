@@ -10,7 +10,10 @@ import { prisma } from '../db.js';
 import { auditLog } from '../utils/audit-logger.js';
 import { checkRateLimit } from '../utils/rate-limit.js';
 import { maskPhone } from '../utils/pii-mask.js';
+import { logger } from '../utils/logger.js';
 import { evaluateAutoReplies } from './whatsapp-autoreply.service.js';
+
+const log = logger('whatsapp-ingest');
 
 export const INGEST_PER_TENANT_LIMIT = 300;
 export const INGEST_WINDOW_MS = 60 * 1000;
@@ -215,8 +218,9 @@ export async function processInboundEvent(
       if (persisted) {
         try {
           await evaluateAutoReplies(businessId, conversation, persisted);
-        } catch {
+        } catch (err) {
           // auto-reply failures must never break inbound ingestion
+          log.error('auto-reply evaluator threw', { err: String(err), businessId, messageId: persisted.id });
         }
       }
     }
