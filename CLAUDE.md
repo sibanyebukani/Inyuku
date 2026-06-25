@@ -1,6 +1,6 @@
 # Inyuku Digital — Project Intelligence (CLAUDE.md)
 
-> **Last synced:** 2026-06-25 (Documentation Lead, post-WhatsApp-inbox-UI build; M0+M1+M2+M3-A merged, **M3-B backend BUILD COMPLETE / QA APPROVED** on `feat/m3b-backend` + **WhatsApp Chat Inbox UI BUILD COMPLETE / QA APPROVED-WITH-NOTES** (179/179 tests) — **MVP frontend complete**; awaiting SRE pre-LIVE conditions + compliance gates before live cutover/merge).
+> **Last synced:** 2026-06-25 (Browser-test session; M0+M1+M2+M3-A+M3-B backend merged; **WhatsApp Chat Inbox UI PR#16 BROWSER-TESTED + MERGED** to main — routing fix: next-intl without URL-prefix (cookie-based locale, custom middleware + IntlProvider client wrapper); **MVP = WhatsApp commerce COMPLETE**; pre-LIVE gates C1/C2/C3/R1/E1-E4 remain open).
 > This file reflects the **resolved** architecture. The roadmap's original "Clerk + Supabase" stack
 > **no longer applies** — see `docs/DECISIONS.md` and EA-ADR-014/015/016.
 > **Backend framework is Fastify 5 (TypeScript)** — EA-ADR-014 was **amended (2026-06-19)** and **EA-ADR-016**
