@@ -2,11 +2,14 @@
 
 > **Owner:** bukani-docs · **Source of truth:** Prisma (`schema.prisma`). This doc is the human-readable
 > mirror of the schema: the **M1 baseline** (bukani-architect, 2026-06-19), the **M2 Commerce Core**
-> contracts (bukani-architect, 2026-06-21), and the **M3-A WhatsApp BSP plumbing** tables (merged PR #11 /
-> `e530574`). When Prisma and this doc disagree, **Prisma wins** — file a docs fix.
+> contracts (bukani-architect, 2026-06-21), the **M3-A WhatsApp BSP plumbing** tables (merged PR #11 /
+> `e530574`), and the **M3-B Commerce-over-Chat** tables (**built / QA APPROVED 2026-06-25**, branch
+> `feat/m3b-backend`; migration `20260623124013_m3b_commerce_over_chat`). When Prisma and this doc disagree,
+> **Prisma wins** — file a docs fix.
 > **Stack:** Fastify 5 (TypeScript) + **Prisma 6** on Railway Postgres 16 (EU). See `docs/API.md`, `CLAUDE.md`.
 > **M2 contracts:** `docs/specs/2026-06-21-m2-commerce-core-contracts.md`.
 > **M3-A contracts:** `docs/specs/2026-06-22-m3a-bsp-plumbing-contracts.md`.
+> **M3-B contracts:** `docs/specs/2026-06-23-m3b-commerce-over-chat-contracts.md`.
 
 ## Conventions (apply to every table)
 
@@ -141,8 +144,10 @@ the full key list.
   | `whatsapp_webhook` *(M3-A)* | `VERIFY_FAILED`, `UNROUTED` | signature/verify failure at the edge / inbound for an unmapped `phoneNumberId` |
   | `whatsapp_channel` *(M3-A)* | `CREATE`, `UPDATE`, `DELETE` | channel provisioned / configured (incl. `enabled` / `mode` toggle) / removed |
   | `whatsapp_template` *(M3-A)* | `CREATE`, `UPDATE`, `DELETE` | approved-template registry CRUD |
+  | `whatsapp_auto_reply_rule` *(M3-B)* | `CREATE`, `UPDATE`, `DELETE` | owner-only auto-reply rule CRUD (`whatsapp:manage_autoreply`) |
+  | `whatsapp_autoreply` *(M3-B)* | `FIRE`, `SUPPRESSED` | a rule fired (sent) / was suppressed (`reason`: `cooldown` / `send_error` / `send_blocked`) |
 
-  > All M3-A WhatsApp audit tuples carry **masked metadata only** (raw `Message.body` and customer phone
+  > All M3-A/M3-B WhatsApp audit tuples carry **masked metadata only** (raw `Message.body` and customer phone
   > numbers are never logged or audited — THREAT-MODEL §7 control 4).
 
   > The tuple set is the audit contract; new entities/actions are added as modules land — keep this table
@@ -485,7 +490,9 @@ Setting-backed.
 
 ## Commerce-over-Chat tables (M3-B)
 
-> Source: `docs/specs/2026-06-23-m3b-commerce-over-chat-contracts.md` (**FROZEN**, 2026-06-23). M3-B is
+> Source: `docs/specs/2026-06-23-m3b-commerce-over-chat-contracts.md` (**FROZEN**, 2026-06-23).
+> **IMPLEMENTED** — built / bukani-qa APPROVED 2026-06-25 (branch `feat/m3b-backend`; migration
+> `20260623124013_m3b_commerce_over_chat`), verified against `server/prisma/schema.prisma`. M3-B is
 > deliberately **thin on schema** — the value is wiring the existing M2 + M3-A seams. The only schema
 > additions are (a) the `Order.conversationId` linkage field (documented in *Table: Order* above) and (b)
 > the new `WhatsAppAutoReplyRule` config table below. **No new idempotency mechanism** — order capture reuses
@@ -517,8 +524,9 @@ consumes these is **provably non-AI** (never imports/calls `lib/ai.js`; CI grep 
 - Indexes: `@@index([businessId])`; `@@index([businessId, trigger, enabled])` (drainer lookup).
 - `@@map("whatsapp_auto_reply_rules")`. Relationships: belongs to `Business` (`onDelete: Cascade`).
 - **Loop/cooldown state is NOT stored on the rule** — the evaluator derives once-per-period throttling from
-  the prior OUTBOUND auto-reply of the same `trigger` in the append-only `Message` ledger (STRIDE §8
-  Condition 7). The rule carries only the `cooldownMinutes` policy.
+  the prior `(whatsapp_autoreply, FIRE)` `AuditLog` entry for the **same `ruleId`** on the conversation
+  within `cooldownMinutes` (STRIDE §8 Condition 7; cooldown is keyed by `ruleId`, **not** by `trigger` —
+  build fix `ceee30e`). The rule carries only the `cooldownMinutes` policy.
 
 > **Consent-model seam — DESIGNED-NOT-BUILT (residual R1).** Per-customer revocation (S6/AC3) needs a
 > subject/customer reference on the M1 `Consent` / `ConsentRevocation` ledger (the row `Customer.consentId`

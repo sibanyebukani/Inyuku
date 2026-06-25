@@ -2,11 +2,14 @@
 
 > **Owner:** bukani-docs · **Source of truth:** the OpenAPI contract emitted by the backend (CI drift check).
 > This doc mirrors the **M1 baseline** contract (bukani-architect, 2026-06-19), the **M2 Commerce Core**
-> contracts (bukani-architect, 2026-06-21), and the **M3-A WhatsApp BSP plumbing** routes (merged PR #11 /
-> `e530574`). When the OpenAPI spec / code and this doc disagree, **the spec/code wins** — file a docs fix.
-> **Stack:** Fastify 5 (TypeScript) + Prisma 6 on Railway. API host: `api.inyuku.co.za` (provisional, ADR-004).
-> See `docs/SCHEMA.md`, `CLAUDE.md`. **M2 contracts:** `docs/specs/2026-06-21-m2-commerce-core-contracts.md`.
-> **M3-A contracts:** `docs/specs/2026-06-22-m3a-bsp-plumbing-contracts.md`.
+> contracts (bukani-architect, 2026-06-21), the **M3-A WhatsApp BSP plumbing** routes (merged PR #11 /
+> `e530574`), and the **M3-B Commerce-over-Chat** routes (**built / QA APPROVED 2026-06-25**, branch
+> `feat/m3b-backend`). When the OpenAPI spec / code and this doc disagree, **the spec/code wins** — file a
+> docs fix. **Stack:** Fastify 5 (TypeScript) + Prisma 6 on Railway. API host: `api.inyuku.co.za`
+> (provisional, ADR-004). See `docs/SCHEMA.md`, `CLAUDE.md`. **M2 contracts:**
+> `docs/specs/2026-06-21-m2-commerce-core-contracts.md`. **M3-A contracts:**
+> `docs/specs/2026-06-22-m3a-bsp-plumbing-contracts.md`. **M3-B contracts:**
+> `docs/specs/2026-06-23-m3b-commerce-over-chat-contracts.md`.
 
 ## Response envelope
 
@@ -414,9 +417,11 @@ window.
 ## Route list (M3-B — Commerce over Chat)
 
 > Source: `docs/specs/2026-06-23-m3b-commerce-over-chat-contracts.md` (**FROZEN**; bukani-security
-> APPROVED-WITH-CONDITIONS, 2026-06-23). M3-B is **thin on new routes** — most value is UI over the frozen
-> M3-A read/send surface + the M2 order/sync paths. **S1 (inbox read), S2 (free-form reply), S7 (status
-> notification) add NO new routes** — they are UI over the M3-A `GET …/conversations*` reads and the M3-A
+> APPROVED-WITH-CONDITIONS, 2026-06-23). **IMPLEMENTED** — backend build complete / bukani-qa APPROVED
+> (2026-06-25, branch `feat/m3b-backend`); routes verified against `server/src/routes/v1/whatsapp.routes.ts`
+> + `commerce.routes.ts`. M3-B is **thin on new routes** — most value is UI over the frozen M3-A read/send
+> surface + the M2 order/sync paths. **S1 (inbox read), S2 (free-form reply), S7 (status notification) add NO
+> new routes** — they are UI over the M3-A `GET …/conversations*` reads and the M3-A
 > `POST …/conversations/:id/messages` send (which already auto-picks free-form vs template by window).
 
 All routes are tenant-scoped under `/v1/businesses/:businessId/whatsapp/*` and require an access cookie + RBAC.
@@ -425,9 +430,9 @@ All routes are tenant-scoped under `/v1/businesses/:businessId/whatsapp/*` and r
 |---|---|---|---|
 | POST | `/whatsapp/conversations/:id/share-catalog` | `whatsapp:send` | `(whatsapp_message, SEND)` — composes catalog text from M2 `Product` (sell price only), then dispatches via the single M3-A send |
 | GET | `/whatsapp/auto-reply-rules` | `whatsapp:read` | — (staff can **see** rules + that they fired, not edit) |
-| POST | `/whatsapp/auto-reply-rules` | `whatsapp:manage_autoreply` | `(whatsapp_autoreply_rule, CREATE)` |
-| PATCH | `/whatsapp/auto-reply-rules/:id` | `whatsapp:manage_autoreply` | `(whatsapp_autoreply_rule, UPDATE)` |
-| DELETE | `/whatsapp/auto-reply-rules/:id` | `whatsapp:manage_autoreply` | `(whatsapp_autoreply_rule, DELETE)` |
+| POST | `/whatsapp/auto-reply-rules` | `whatsapp:manage_autoreply` | `(whatsapp_auto_reply_rule, CREATE)` |
+| PATCH | `/whatsapp/auto-reply-rules/:id` | `whatsapp:manage_autoreply` | `(whatsapp_auto_reply_rule, UPDATE)` |
+| DELETE | `/whatsapp/auto-reply-rules/:id` | `whatsapp:manage_autoreply` | `(whatsapp_auto_reply_rule, DELETE)` |
 
 (Order capture rides the existing `POST /orders` + `POST /sync` paths — see *M3-B additive fields* above.)
 

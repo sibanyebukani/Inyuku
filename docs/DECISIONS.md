@@ -626,7 +626,7 @@ sending an unregistered/unapproved template is impossible. Template CRUD is `wha
 ## ADR-INY-021 — Conversation→Order linkage = nullable FK on `Order` (`Order.conversationId`)
 
 **Date:** 2026-06-23
-**Status:** Accepted (M3-B design; **FROZEN** contract) — build pending
+**Status:** **Accepted / IMPLEMENTED** (M3-B build complete / bukani-qa APPROVED 2026-06-25, branch `feat/m3b-backend`; migration `20260623124013_m3b_commerce_over_chat`)
 **Decided by:** bukani-architect (Inyuku)
 **References:** M3-B brief §10 / §8.6 (one-order-model), M3-B contracts §2.1 / §11 (`docs/specs/2026-06-23-m3b-commerce-over-chat-contracts.md`); ADR-005 (tenant root); THREAT-MODEL §8 Condition 1
 
@@ -655,7 +655,7 @@ order.businessId === route businessId` before writing the link (Condition 1) —
 ## ADR-INY-022 — Auto-reply config is a tenant table (`WhatsAppAutoReplyRule`), not a `Setting` blob
 
 **Date:** 2026-06-23
-**Status:** Accepted (M3-B design; **FROZEN** contract) — build pending
+**Status:** **Accepted / IMPLEMENTED** (M3-B build complete / bukani-qa APPROVED 2026-06-25, branch `feat/m3b-backend`)
 **Decided by:** bukani-architect (Inyuku)
 **References:** M3-B brief §10 (S5/AC6 owner-configures/staff-operates), M3-B contracts §2.2 / §11; ADR-INY-020 (same reasoning as the template registry); ADR-INY-011 (`Setting`)
 
@@ -668,10 +668,12 @@ Model the config as a **`WhatsAppAutoReplyRule` table** (mirrors ADR-INY-020): `
 `channelId`, `trigger` / `action` enums, `enabled` default `false`, `keyword`, `replyText`, SAST
 `hoursStart`/`hoursEnd`/`daysActive[]`, `cooldownMinutes`, snake_case `@@map`. Writes are the new owner-only
 `whatsapp:manage_autoreply`; reads are `whatsapp:read` (staff see rules + that they fired). Loop/cooldown
-state is **derived from the `Message` ledger**, not stored on the rule.
+state is **derived from the audit ledger** (prior `(whatsapp_autoreply, FIRE)` for the same `ruleId` on the
+conversation within `cooldownMinutes`; keyed by `ruleId`, not `trigger` — build fix `ceee30e`), not stored
+on the rule.
 
 ### Consequences
-- Clean RBAC, per-rule audit (`(whatsapp_autoreply_rule, CREATE|UPDATE|DELETE)`), indexable trigger lookup.
+- Clean RBAC, per-rule audit (`(whatsapp_auto_reply_rule, CREATE|UPDATE|DELETE)`), indexable trigger lookup.
 - The evaluator is **provably non-AI** — never imports/calls `lib/ai.js` (CI grep assertion; Condition 6c).
 
 ### Alternatives rejected
@@ -683,7 +685,7 @@ state is **derived from the `Message` ledger**, not stored on the rule.
 ## ADR-INY-023 — Catalog share is a server-composed plain ZAR-priced text list
 
 **Date:** 2026-06-23
-**Status:** Accepted (M3-B design; **FROZEN** contract) — build pending
+**Status:** **Accepted / IMPLEMENTED** (M3-B build complete / bukani-qa APPROVED 2026-06-25, branch `feat/m3b-backend`)
 **Decided by:** bukani-architect (Inyuku)
 **References:** M3-B brief §8.7 (representation deferred to architect), M3-B contracts §4.2 / §11; `docs/PERSONAS.md` (Nomsa — entry-level Android); THREAT-MODEL §8 Conditions 2 & 4
 
@@ -710,7 +712,7 @@ M2 catalog filtered to `status = ACTIVE` (archived excluded), out-of-stock **inc
 ## ADR-INY-024 — Order capture rides the M2 `clientId`/`sync` path; no new offline mechanism, no new sync op
 
 **Date:** 2026-06-23
-**Status:** Accepted (M3-B design; **FROZEN** contract) — build pending
+**Status:** **Accepted / IMPLEMENTED** (M3-B build complete / bukani-qa APPROVED 2026-06-25, branch `feat/m3b-backend`)
 **Decided by:** bukani-architect (Inyuku)
 **References:** M3-B brief §10 (offline P0; one offline mechanism), M3-B contracts §4.1 / §11; ADR-INY-016 (clientId + LWW-on-`occurredAt`); ADR-INY-015 (deterministic SALE `clientId`); THREAT-MODEL §8 Conditions 8 & 9
 
