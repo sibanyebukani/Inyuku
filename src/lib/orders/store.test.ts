@@ -68,6 +68,57 @@ describe('useOrderStore', () => {
     });
   });
 
+  it('forwards channel + conversationId into the outbox op for a WHATSAPP capture (TASK-7)', async () => {
+    await seedProduct({ clientId: 'p1', serverId: 'srv1', name: 'Bread', sellPriceCents: 1500 });
+    const clientId = await useOrderStore.getState().create({
+      customerId: 'cust1',
+      conversationId: 'conv-9',
+      paymentState: 'UNPAID',
+      status: 'COMPLETED',
+      channel: 'WHATSAPP',
+      lines: [
+        { productId: 'srv1', nameSnapshot: 'Bread', unitPriceCents: 1500, qty: 1, lineTotalCents: 1500 },
+      ],
+      subtotalCents: 1500,
+      totalCents: 1500,
+    });
+
+    // (b) offline WHATSAPP order includes both after sync flush — the op payload
+    // is what the sync flush forwards verbatim.
+    const ops = await listBatch();
+    expect(ops).toHaveLength(1);
+    expect(ops[0].payload).toMatchObject({
+      channel: 'WHATSAPP',
+      conversationId: 'conv-9',
+      customerId: 'cust1',
+      status: 'COMPLETED',
+      paymentState: 'UNPAID',
+    });
+
+    // conversationId round-trips onto the OrderRow.
+    const row = await useOrderStore.getState().get(clientId);
+    expect(row?.conversationId).toBe('conv-9');
+    expect(row?.channel).toBe('WHATSAPP');
+  });
+
+  it('an IN_PERSON order carries channel but no conversationId (regression)', async () => {
+    await seedProduct({ clientId: 'p1', serverId: 'srv1', name: 'Bread', sellPriceCents: 1500 });
+    await useOrderStore.getState().create({
+      paymentState: 'PAID',
+      status: 'COMPLETED',
+      channel: 'IN_PERSON',
+      lines: [
+        { productId: 'srv1', nameSnapshot: 'Bread', unitPriceCents: 1500, qty: 1, lineTotalCents: 1500 },
+      ],
+      subtotalCents: 1500,
+      totalCents: 1500,
+    });
+    const ops = await listBatch();
+    expect(ops).toHaveLength(1);
+    expect(ops[0].payload).toMatchObject({ channel: 'IN_PERSON' });
+    expect(ops[0].payload.conversationId).toBeUndefined();
+  });
+
   it('loads orders sorted by occurredAt descending', async () => {
     const repo = makeRepo<OrderRow>('orders');
     await repo.put({

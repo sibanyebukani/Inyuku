@@ -18,6 +18,12 @@ interface PendingLine {
 
 interface OrderFormProps {
   onDone?: (clientId: string) => void;
+  /** Set for chat-captured orders. Defaults to IN_PERSON so the Orders screen is unchanged. */
+  channel?: 'IN_PERSON' | 'WHATSAPP';
+  /** Links a captured order back to its WhatsApp conversation (M3-B). */
+  conversationId?: string;
+  /** Pre-selects the conversation's customer when capturing from chat. */
+  defaultCustomerId?: string;
 }
 
 type FormLine = {
@@ -28,7 +34,12 @@ type FormLine = {
   lineTotalCents: number;
 };
 
-export function OrderForm({ onDone }: OrderFormProps) {
+export function OrderForm({
+  onDone,
+  channel = 'IN_PERSON',
+  conversationId,
+  defaultCustomerId,
+}: OrderFormProps) {
   const { hasPerm } = useSession();
   const canWrite = hasPerm('order:write');
 
@@ -60,7 +71,7 @@ export function OrderForm({ onDone }: OrderFormProps) {
   } = useForm<OrderFormValues>({
     resolver: zodResolver(orderFormSchema),
     defaultValues: {
-      customerId: '',
+      customerId: defaultCustomerId ?? '',
       paymentState: 'PAID',
       lines: [],
     },
@@ -97,12 +108,13 @@ export function OrderForm({ onDone }: OrderFormProps) {
 
   async function onSubmit(values: OrderFormValues) {
     if (!canWrite) return;
-    const customerId = values.customerId || undefined;
+    const customerId = values.customerId || defaultCustomerId || undefined;
     const clientId = await create({
       customerId,
+      conversationId,
       paymentState: values.paymentState,
       status: 'COMPLETED',
-      channel: 'IN_PERSON',
+      channel,
       lines: values.lines,
       subtotalCents: totals.subtotalCents,
       totalCents: totals.totalCents,

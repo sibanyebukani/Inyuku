@@ -110,4 +110,47 @@ describe('OrderForm', () => {
     expect(screen.getByRole('button', { name: /record sale/i })).toBeDisabled();
     expect(screen.getByText(/you do not have permission/i)).toBeInTheDocument();
   });
+
+  it('passes WHATSAPP channel + conversationId + customer through on capture', async () => {
+    await seedProduct({ clientId: 'p1', serverId: 'srv1', name: 'Bread', sellPriceCents: 1500 });
+    await seedCustomer({ clientId: 'c1', serverId: 'cust1', name: 'Nomsa' });
+    await useProductStore.getState().load();
+    await useCustomerStore.getState().load();
+
+    const createSpy = vi.spyOn(useOrderStore.getState(), 'create').mockResolvedValue('o1');
+    render(<OrderForm channel="WHATSAPP" conversationId="conv-9" defaultCustomerId="cust1" />);
+
+    await waitFor(() => expect(screen.getByRole('option', { name: /bread/i })).toBeInTheDocument());
+    await userEvent.selectOptions(screen.getByLabelText(/product/i), 'srv1');
+    await userEvent.click(screen.getByRole('button', { name: /add/i }));
+    await userEvent.click(screen.getByRole('button', { name: /record sale/i }));
+
+    await waitFor(() => expect(createSpy).toHaveBeenCalled());
+    expect(createSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'WHATSAPP',
+        conversationId: 'conv-9',
+        customerId: 'cust1',
+        status: 'COMPLETED',
+      }),
+    );
+  });
+
+  it('defaults to IN_PERSON with no conversationId when not in chat context (regression)', async () => {
+    await seedProduct({ clientId: 'p1', serverId: 'srv1', name: 'Bread', sellPriceCents: 1500 });
+    await useProductStore.getState().load();
+    await useCustomerStore.getState().load();
+
+    const createSpy = vi.spyOn(useOrderStore.getState(), 'create').mockResolvedValue('o1');
+    render(<OrderForm />);
+    await waitFor(() => expect(screen.getByRole('option', { name: /bread/i })).toBeInTheDocument());
+    await userEvent.selectOptions(screen.getByLabelText(/product/i), 'srv1');
+    await userEvent.click(screen.getByRole('button', { name: /add/i }));
+    await userEvent.click(screen.getByRole('button', { name: /record sale/i }));
+
+    await waitFor(() => expect(createSpy).toHaveBeenCalled());
+    const arg = createSpy.mock.calls[0][0];
+    expect(arg.channel).toBe('IN_PERSON');
+    expect(arg.conversationId).toBeUndefined();
+  });
 });
