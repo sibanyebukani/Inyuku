@@ -39,6 +39,8 @@ export interface OrderLineRow {
 export interface OrderRow extends BaseRow {
   orderNumber?: string;
   customerId?: string;
+  /** Links a chat-captured order back to its WhatsApp conversation (M3-B). */
+  conversationId?: string;
   status: 'DRAFT' | 'COMPLETED' | 'VOID';
   channel: 'IN_PERSON' | 'WHATSAPP' | 'ONLINE';
   paymentState: 'PAID' | 'UNPAID';

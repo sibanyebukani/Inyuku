@@ -1,6 +1,6 @@
 # Inyuku Digital — Milestone Roadmap
 
-> **Owner:** bukani-docs · **Last synced:** 2026-06-25 (post-M3-B build / QA APPROVED).
+> **Owner:** bukani-docs · **Last synced:** 2026-06-25 (post-WhatsApp-inbox-UI build / QA APPROVED — MVP frontend complete).
 > Quick milestone status. The full program design is
 > `docs/superpowers/specs/2026-06-18-inyuku-full-platform-roadmap-design.md`; decisions are in
 > `docs/DECISIONS.md`; M2 contracts are in `docs/specs/2026-06-21-m2-commerce-core-contracts.md`;
@@ -19,7 +19,7 @@ stays deferred.**
 | **M0** | Repo foundation + Next.js migration (M0-A / M0-B / M0-C) | **Done (merged)** |
 | **M1** | Fastify/Prisma platform foundation: auth, tenancy, RBAC, settings, audit, consent, R2 | **Done (merged)** |
 | **M2** | **Commerce Core** — onboarding, catalog, inventory, orders, customers, dashboard, offline-first sync, PostHog analytics, staff RBAC split | **Done (merged — PRs #6/#7/#8)** |
-| **M3** | WhatsApp commerce (360dialog) | **M3-A merged (#11); M3-B BUILD COMPLETE / QA APPROVED (2026-06-25, `feat/m3b-backend`) — awaiting SRE/devops sign-off + merge to main** |
+| **M3** | WhatsApp commerce (360dialog) | **M3-A merged (#11); M3-B backend BUILD COMPLETE / QA APPROVED; WhatsApp Chat Inbox UI BUILD COMPLETE / QA APPROVED-WITH-NOTES (2026-06-25, 179/179 tests) — MVP frontend complete; awaiting SRE pre-LIVE conditions + compliance gates before live cutover/merge** |
 | **M4** | Payments / TradeSafe escrow | **Deferred (post-MVP)** |
 | **M5** | AI Business Assistant (`lib/ai.js`) | **Deferred (post-MVP)** |
 | (deferred) | Lending / credit (verified-transaction data stays internal analytics, ADR-006) | Deferred |
@@ -47,7 +47,33 @@ no payments — M4/M5 deferred). Source of truth:
 `docs/specs/2026-06-23-m3b-commerce-over-chat-product-brief.md` (7 stories M3B-S1..S7) +
 `docs/specs/2026-06-23-m3b-commerce-over-chat-contracts.md` (FROZEN).
 
-**Next steps:** bukani-docs (docs sync) ✅ → SRE/devops sign-off → merge `feat/m3b-backend` to `main`.
+**Next steps:** SRE pre-LIVE conditions **C1/C2/C3** + compliance gates **E1–E4** before live cutover →
+merge to `main`. (bukani-docs sync ✅; M3-B backend + WhatsApp inbox UI both QA-approved.)
+
+### WhatsApp Chat Inbox UI (BUILD COMPLETE / QA APPROVED-WITH-NOTES — 2026-06-25)
+
+**Status:** **Built; bukani-qa verdict APPROVED-WITH-NOTES (2026-06-25, 179/179 tests).** The **MVP frontend
+is now complete.** Pure Next.js (App Router) merchant UI over the frozen M3-A/M3-B read/send surface + the M2
+order/sync paths — **no new backend routes, no schema, no contract changes**. Source of truth:
+`docs/specs/2026-06-25-whatsapp-inbox-ui-contracts.md` (FROZEN-FOR-BUILD); ADRs **ADR-INY-025..028**.
+
+**Shipped (frontend):** the merchant WhatsApp surface — inbox list (`/whatsapp`), thread view + window-aware
+composer + catalog share + order capture + payment toggle (`/whatsapp/[conversationId]`), owner-only
+auto-reply rule management (`/whatsapp/auto-replies`); the API client / copy helpers / store / poll+unread
+hooks (`src/lib/whatsapp/`); `src/components/PaymentToggle.tsx`; the **TASK-7 order-store fix** so WHATSAPP
+captures carry `channel`/`conversationId` through the offline outbox (`src/lib/orders/store.ts` +
+`src/lib/offline/types.ts`); additive `channel`/`conversationId` props on `OrderForm`
+(`src/app/(merchant)/orders/OrderForm.tsx`); and the WhatsApp nav item + unread badge
+(`src/app/(merchant)/layout.tsx`).
+
+**Key UI decisions:** unread = **derived client-side** (`lastInboundAt > lastOutboundAt`, ADR-INY-025);
+refresh = **visibility-gated polling** (30 s list / 15 s thread, no websockets; message sends live-only —
+ADR-INY-026); order capture **reuses `<OrderForm>` + `useOrderStore`** (ADR-INY-027); plain-language
+window/error copy **centralised + i18n-ready** (ADR-INY-028).
+
+**QA note (MINOR-1, ratified as MVP UX):** on a **CLOSED** 24h window the composer is **disabled** with the
+copy **"This chat is resting. Your customer needs to message you first before you can reply."** — an as-built
+deviation from the original contract copy, recorded in the spec §6.1 and ADR-INY-028.
 
 **Shipped (7 stories, backend):** inbox read (S1) + window-aware free-form reply (S2) over the frozen M3-A
 reads/send; order capture from chat → M2 `Order(channel = WHATSAPP)` + customer link/create from the

@@ -15,7 +15,12 @@
 > sync idempotency/LWW — `docs/specs/2026-06-21-m2-commerce-core-contracts.md`); **ADR-INY-017..020** persist
 the M3-A WhatsApp BSP plumbing contracts (durable-outbox async-ack, provider-id idempotency, server-side
 tenant routing, table-backed template registry — `docs/specs/2026-06-22-m3a-bsp-plumbing-contracts.md`),
-**implemented in the merged M3-A build (PR #11 / `e530574`)**.
+**implemented in the merged M3-A build (PR #11 / `e530574`)**; **ADR-INY-021..024** persist the frozen M3-B
+Commerce-over-Chat contracts (`docs/specs/2026-06-23-m3b-commerce-over-chat-contracts.md`),
+**implemented + bukani-qa APPROVED on `feat/m3b-backend` (2026-06-25)**; **ADR-INY-025..028** persist the
+WhatsApp Chat Inbox UI frontend decisions (derived needs-reply, visibility-gated polling, `<OrderForm>`
+reuse, centralised plain-language copy — `docs/specs/2026-06-25-whatsapp-inbox-ui-contracts.md`),
+**built + bukani-qa APPROVED-WITH-NOTES (2026-06-25, 179/179 tests)**.
 
 This log supersedes the stack rows of the §3 ADR table in
 `docs/superpowers/specs/2026-06-18-inyuku-full-platform-roadmap-design.md`. The roadmap's original
@@ -736,3 +741,118 @@ The sync order payload is validated with the **same typed Zod schema** as the on
 ### Alternatives rejected
 - A new `whatsapp_order` entity / `capture` op (a second offline mechanism to build, test, and keep
   convergent — for no benefit over the existing path).
+
+---
+
+## ADR-INY-025 — Inbox unread / needs-reply is derived client-side from `lastInboundAt` vs `lastOutboundAt`
+
+**Date:** 2026-06-25
+**Status:** **Accepted / IMPLEMENTED** (WhatsApp inbox UI build complete / bukani-qa APPROVED-WITH-NOTES 2026-06-25, 179/179 tests)
+**Decided by:** bukani-architect (Inyuku)
+**References:** WhatsApp inbox UI contracts §0.1 / §4.2 / §8 (`docs/specs/2026-06-25-whatsapp-inbox-ui-contracts.md`); M3-A `GET …/whatsapp/conversations` (raw rows, no `unread` field)
+
+### Context
+The built `GET …/whatsapp/conversations` returns raw `Conversation` rows — **no `unread` field, no
+read-receipt store**. The brief (open question #1) asked which it is. "No new backend" forbids adding one.
+
+### Decision
+The UI derives a **needs-reply** indicator: `needsReply = lastInboundAt != null && (lastOutboundAt == null ||
+lastInboundAt > lastOutboundAt)`. The nav/inbox total = count of needs-reply over the loaded page (size 50).
+Copy frames it as "waiting for reply", not a per-message unread count.
+
+### Consequences
+- It is "waiting for my reply", not a true unread count; the total is over the loaded page (a documented
+  limitation), at zero backend cost. Matches Nomsa's mental model better than an unread counter.
+
+### Alternatives rejected
+- A server `unread` field (violates "no new backend"). A per-message read-receipt store (out of scope, no schema).
+
+---
+
+## ADR-INY-026 — Refresh is visibility-gated polling (30 s list / 15 s open thread); no websockets; message sends are live-only for MVP
+
+**Date:** 2026-06-25
+**Status:** **Accepted / IMPLEMENTED** (WhatsApp inbox UI build complete / bukani-qa APPROVED-WITH-NOTES 2026-06-25)
+**Decided by:** bukani-architect (Inyuku)
+**References:** WhatsApp inbox UI contracts §4.1 / §4.4 / §6.5 / §8; `docs/PERSONAS.md` (Nomsa — entry Android, expensive/intermittent data); ADR-INY-024 (order capture rides the durable outbox)
+
+### Context
+Realtime is explicitly out of scope (brief §Out-of-scope). Nomsa is on an entry Android with expensive,
+intermittent data and a battery budget.
+
+### Decision
+Poll the **list every 30 s** and the **open thread every 15 s**, both **paused when the tab is hidden**, plus
+a manual refresh. **No websockets.** **Message/share sends are live-only**: while offline the composer
+disables the POST and shows "will send when online" — they are **not** enqueued to the durable IndexedDB
+outbox (which stays order/product/customer/stock only). Order capture — the load-bearing offline write —
+**does** use the durable outbox (ADR-INY-024).
+
+### Consequences
+- Near-real-time enough for a counter workflow at minimal cost; offline reads stay readable; the one offline
+  write that matters (order capture) is durable and converges exactly once; offline *replies* are a known,
+  accepted MVP gap.
+
+### Alternatives rejected
+- Websockets (out of scope; server + battery cost). Always-on tight poll (data/battery). A durable offline
+  send-queue (a new mechanism the brief says to avoid; deferred).
+
+---
+
+## ADR-INY-027 — Order capture from chat reuses `<OrderForm>` + `useOrderStore`, pre-seeded, not a new picker or path
+
+**Date:** 2026-06-25
+**Status:** **Accepted / IMPLEMENTED** (WhatsApp inbox UI build complete / bukani-qa APPROVED-WITH-NOTES 2026-06-25)
+**Decided by:** bukani-architect (Inyuku)
+**References:** WhatsApp inbox UI contracts §4.5 / §6.2 / §7 (TASK-7) / §8; ADR-INY-024 (M2 `clientId`/`sync` path); ADR-INY-021 (`Order.conversationId`)
+
+### Context
+Open questions #3/#4 — a chat-specific item picker vs reuse, and where capture writes.
+
+### Decision
+Reuse the existing `<OrderForm>` item-picker and `useOrderStore.create()`, pre-seeded with `channel:'WHATSAPP'`,
+`conversationId`, and the conversation's `customerId`. `<OrderForm>` gains additive, defaulted props so the
+existing Orders screen is unchanged. Capture rides the existing `clientId`/`POST …/sync` path (ADR-INY-024) —
+**no new order model, no new sync op, no re-implemented offline logic.** The required correctness fix (TASK-7):
+`useOrderStore.create()` and `OrderRow` now forward `channel`/`conversationId` into the outbox op payload
+(the prior store dropped them) — `src/lib/orders/store.ts` + `src/lib/offline/types.ts`.
+
+### Consequences
+- One order-capture mental model; RBAC sell-price-only and offline convergence inherited free.
+- The store/`OrderRow` change is additive and regression-tested; the `IN_PERSON` path is unchanged.
+
+### Alternatives rejected
+- A chat-specific picker / a new write path (re-implements validation, RBAC cost-split, and offline
+  convergence for no benefit).
+
+---
+
+## ADR-INY-028 — Plain-language window/error copy is centralised + i18n-ready; raw platform codes never reach the merchant
+
+**Date:** 2026-06-25
+**Status:** **Accepted / IMPLEMENTED** (WhatsApp inbox UI build complete / bukani-qa APPROVED-WITH-NOTES 2026-06-25)
+**Decided by:** bukani-architect (Inyuku)
+**References:** WhatsApp inbox UI contracts §6.1 / §8; brief §Risks (comprehension is the top business risk); bukani-qa MINOR-1 (closed-window copy as-built)
+
+### Context
+Comprehension risk is the milestone's top business risk — a technical window error makes Nomsa think the app
+is broken and revert to the WhatsApp app.
+
+### Decision
+All window-state, blocked-send (`409/422/403`), and non-AI-framing strings live in one
+`src/lib/whatsapp/copy.ts` map; the UI **always** maps server error codes to plain-language copy and **never**
+renders a raw code/message. English ships first; the map is structured for isiZulu/isiXhosa (open question
+#5, founder call).
+
+**As-built deviation (bukani-qa MINOR-1, ratified 2026-06-25):** the **CLOSED-window** composer is **disabled**
+with the copy **"This chat is resting. Your customer needs to message you first before you can reply."** —
+superseding the original contract string ("…you can only send an approved update — type your message and we'll
+send the right kind…"). Rationale: "they message first" is the simplest comprehension-safe model for the MVP
+slice, which does not yet expose a merchant-initiated approved-template path. Recorded in
+`docs/specs/2026-06-25-whatsapp-inbox-ui-contracts.md` §6.1.
+
+### Consequences
+- Consistent low-literacy copy; a single place to localise; the anti-metric "merchants fighting the window UI"
+  is measurable against this copy.
+
+### Alternatives rejected
+- Surfacing raw platform error codes/messages (the exact comprehension failure the gate forbids).

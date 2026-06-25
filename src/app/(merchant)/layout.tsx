@@ -6,28 +6,38 @@ import { usePathname, useRouter } from 'next/navigation';
 import { SessionProvider, useSession } from '@/lib/session/SessionProvider';
 import { registerSyncTriggers } from '@/lib/offline/triggers';
 import { useOnline } from '@/lib/offline/useOnline';
+import { useWhatsAppUnread } from '@/lib/whatsapp/useUnread';
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/products', label: 'Products' },
   { href: '/orders', label: 'Orders' },
+  { href: '/whatsapp', label: 'WhatsApp' },
   { href: '/customers', label: 'Customers' },
   { href: '/inventory', label: 'Inventory' },
   { href: '/onboarding', label: 'Onboarding' },
 ];
 
-function NavLink({ href, label }: { href: string; label: string }) {
+function NavLink({ href, label, badge }: { href: string; label: string; badge?: number }) {
   const pathname = usePathname();
   const active = pathname === href || pathname.startsWith(`${href}/`);
   return (
     <Link
       href={href}
-      className={`block rounded px-3 py-2 text-sm font-medium ${
+      className={`flex items-center gap-1.5 rounded px-3 py-2 text-sm font-medium ${
         active ? 'bg-emerald-100 text-emerald-800' : 'text-gray-700 hover:bg-gray-100'
       }`}
       aria-current={active ? 'page' : undefined}
     >
       {label}
+      {badge != null && badge > 0 && (
+        <span
+          className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-emerald-100 px-1.5 text-xs font-semibold text-emerald-800"
+          aria-label={`${badge} waiting for reply`}
+        >
+          {badge}
+        </span>
+      )}
     </Link>
   );
 }
@@ -35,6 +45,7 @@ function NavLink({ href, label }: { href: string; label: string }) {
 function MerchantShell({ children }: { children: React.ReactNode }) {
   const { activeBusinessId } = useSession();
   const online = useOnline();
+  const whatsAppUnread = useWhatsAppUnread();
 
   useEffect(() => {
     if (!activeBusinessId) return;
@@ -50,7 +61,11 @@ function MerchantShell({ children }: { children: React.ReactNode }) {
         <ul className="flex flex-wrap gap-1">
           {navItems.map((item) => (
             <li key={item.href}>
-              <NavLink href={item.href} label={item.label} />
+              <NavLink
+                href={item.href}
+                label={item.label}
+                badge={item.href === '/whatsapp' ? whatsAppUnread : undefined}
+              />
             </li>
           ))}
         </ul>

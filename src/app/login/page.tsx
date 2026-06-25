@@ -19,7 +19,7 @@ export default function LoginPage() {
       await login(form)
       const me = await getMe()
       setUser(me.user)
-      router.push('/')
+      router.push('/dashboard')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
     } finally {

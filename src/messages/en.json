@@ -21,5 +21,33 @@
     "tn": "Setswana",
     "nso": "Sepedi",
     "ts": "Xitsonga"
+  },
+  "whatsapp": {
+    "nav": "WhatsApp",
+    "inboxTitle": "WhatsApp",
+    "inboxRefresh": "Refresh",
+    "inboxStale": "Showing your last view — reconnect to update",
+    "inboxEmpty": "No chats yet. This inbox fills up as customers message your shop on WhatsApp.",
+    "needsReply": "Waiting for your reply",
+    "threadBack": "Back to chats",
+    "threadEmpty": "No messages in this chat yet.",
+    "composerPlaceholder": "Type your reply…",
+    "send": "Send",
+    "shareCatalog": "Share catalog",
+    "newOrder": "New order",
+    "offlineSend": "You're offline — this will send when you're back online.",
+    "windowOpen": "You can reply now. Free replies until {time} today.",
+    "windowClosed": "This chat is resting. Your customer needs to message you first before you can reply.",
+    "errWindowClosed": "This chat is resting. Your customer needs to message you first before you can reply.",
+    "errConsentDenied": "We can't message this customer yet — they haven't agreed to messages.",
+    "errChannelDisabled": "WhatsApp sending isn't switched on for your shop yet.",
+    "errTemplateInvalid": "That update isn't ready to send yet.",
+    "errSendFailed": "That message didn't send. Try again.",
+    "autoRepliesTitle": "Automatic replies",
+    "autoRepliesNonAi": "These are your own simple, set replies — not a robot or AI. They send the exact words you type, only when a message matches.",
+    "autoRepliesStaffReadOnly": "Only your account owner can set up automatic replies. Contact your account owner to change these.",
+    "paymentPaid": "Paid",
+    "paymentUnpaid": "Unpaid",
+    "notifyPaid": "Tell the customer it’s paid"
   }
 }

@@ -9,6 +9,8 @@ const repo = makeRepo<OrderRow>('orders');
 
 export interface OrderCreateInput {
   customerId?: string;
+  /** Set for chat-captured orders so the sync op links the order to its conversation. */
+  conversationId?: string;
   paymentState: 'PAID' | 'UNPAID';
   status: 'DRAFT' | 'COMPLETED';
   channel: 'IN_PERSON' | 'WHATSAPP' | 'ONLINE';
@@ -38,6 +40,7 @@ function serverOrderToRow(serverOrder: Record<string, unknown>, clientId: string
     serverId: (serverOrder.id as string | undefined) ?? undefined,
     orderNumber: (serverOrder.orderNumber as string | undefined) ?? undefined,
     customerId: (serverOrder.customerId as string | undefined) ?? undefined,
+    conversationId: (serverOrder.conversationId as string | undefined) ?? undefined,
     status: serverOrder.status as OrderRow['status'],
     channel: serverOrder.channel as OrderRow['channel'],
     paymentState: serverOrder.paymentState as OrderRow['paymentState'],
@@ -65,6 +68,7 @@ export const useOrderStore = createStore<OrderState>((set) => ({
     const row: OrderRow = {
       clientId,
       customerId: input.customerId,
+      conversationId: input.conversationId,
       status: input.status,
       channel: input.channel,
       paymentState: input.paymentState,
@@ -85,6 +89,11 @@ export const useOrderStore = createStore<OrderState>((set) => ({
         occurredAt,
         payload: {
           customerId: input.customerId,
+          // Forward channel + conversationId so chat-captured orders link to their
+          // conversation after offline sync (ADR-INY-024/027). The server's
+          // orderFieldsSchema accepts both; omitted keys default to IN_PERSON.
+          channel: input.channel,
+          conversationId: input.conversationId,
           status: input.status,
           paymentState: input.paymentState,
           lines: input.lines.map((line) => ({ productId: line.productId!, qty: line.qty })),
