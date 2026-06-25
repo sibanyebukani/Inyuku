@@ -1,6 +1,7 @@
 import { prisma } from '../db.js';
 import { Prisma } from '@prisma/client';
-import { ValidationError } from '../utils/errors.js';
+import { NotFoundError, ValidationError } from '../utils/errors.js';
+import { normalizeMsisdn, maskMsisdn } from '../utils/phone.js';
 import type { Order, OrderLine } from '@prisma/client';
 
 export interface CreateOrderLineInput {
@@ -12,6 +13,7 @@ export interface CreateOrderInput {
   businessId: string;
   clientId: string;
   customerId?: string;
+  conversationId?: string;
   status?: 'DRAFT' | 'COMPLETED';
   channel?: 'IN_PERSON' | 'WHATSAPP' | 'ONLINE';
   paymentState?: 'PAID' | 'UNPAID';
@@ -20,6 +22,47 @@ export interface CreateOrderInput {
 }
 
 export type OrderWithLines = Order & { lines: OrderLine[] };
+
+async function resolveCustomerFromConversation(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  conversationId: string,
+): Promise<string | null> {
+  const conv = await tx.conversation.findUnique({ where: { id: conversationId } });
+  if (!conv || conv.businessId !== businessId) return null; // already tenant-checked upstream; defensive
+  if (conv.customerId) return conv.customerId;
+
+  const normalized = normalizeMsisdn(conv.waContactId);
+  // try match by normalised phone within the tenant
+  const candidates = await tx.customer.findMany({ where: { businessId, phone: { not: null } } });
+  const match = candidates.find((c) => c.phone && normalizeMsisdn(c.phone) === normalized);
+  let customerId: string;
+  if (match) {
+    customerId = match.id;
+  } else {
+    // createMany + skipDuplicates is race-safe: the unique-constraint conflict is swallowed
+    // by Postgres ON CONFLICT DO NOTHING, so the transaction stays alive.
+    await tx.customer.createMany({
+      data: [{
+        businessId,
+        clientId: `wa:${conversationId}`,
+        name: `WhatsApp ${maskMsisdn(conv.waContactId)}`,
+        phone: normalizeMsisdn(conv.waContactId),
+        consentId: null,
+      }],
+      skipDuplicates: true,
+    });
+    const created = await tx.customer.findUnique({
+      where: { businessId_clientId: { businessId, clientId: `wa:${conversationId}` } },
+    });
+    if (!created) throw new Error('Failed to resolve customer after createMany');
+    customerId = created.id;
+  }
+  if (!conv.customerId) {
+    await tx.conversation.update({ where: { id: conversationId }, data: { customerId } });
+  }
+  return customerId;
+}
 
 async function nextOrderNumber(businessId: string, tx: Prisma.TransactionClient): Promise<string> {
   const count = await tx.order.count({ where: { businessId } });
@@ -34,10 +77,28 @@ export async function createOrder(input: CreateOrderInput): Promise<{ order: Ord
   });
   if (existing) return { order: existing, duplicate: true };
 
+  if (input.conversationId) {
+    const conv = await prisma.conversation.findUnique({ where: { id: input.conversationId } });
+    if (!conv || conv.businessId !== input.businessId) {
+      throw new NotFoundError('Conversation not found');
+    }
+  }
+  if (input.customerId) {
+    const cust = await prisma.customer.findUnique({ where: { id: input.customerId } });
+    if (!cust || cust.businessId !== input.businessId) {
+      throw new NotFoundError('Customer not found');
+    }
+  }
+
   const status = input.status ?? 'DRAFT';
   const occurredAt = input.occurredAt ?? new Date();
 
   return await prisma.$transaction(async (tx) => {
+    let resolvedCustomerId = input.customerId ?? null;
+    if (!resolvedCustomerId && input.conversationId) {
+      resolvedCustomerId = await resolveCustomerFromConversation(tx, input.businessId, input.conversationId);
+    }
+
     const orderNumber = await nextOrderNumber(input.businessId, tx);
 
     let subtotalCents = 0;
@@ -72,7 +133,8 @@ export async function createOrder(input: CreateOrderInput): Promise<{ order: Ord
         businessId: input.businessId,
         clientId: input.clientId,
         orderNumber,
-        customerId: input.customerId ?? null,
+        customerId: resolvedCustomerId,
+        conversationId: input.conversationId ?? null,
         status,
         channel: input.channel ?? 'IN_PERSON',
         paymentState: input.paymentState ?? 'PAID',

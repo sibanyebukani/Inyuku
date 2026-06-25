@@ -201,13 +201,15 @@ against the 360dialog sandbox with mocked webhooks and **no production PII**. Th
 ## 7c. M3-B Commerce-over-Chat — new processing & gates
 
 M3-B is the milestone that turns **WhatsApp `Message` PII into commerce-core PII**: order capture from chat
-**creates a `Customer` from the conversation's `waContactId`** (the customer's phone number), and adds an
-**automated send path** (deterministic, provably-non-AI auto-replies). The frozen contract
-(`docs/specs/2026-06-23-m3b-commerce-over-chat-contracts.md`) builds **sandbox-only with zero production PII**;
-live messaging stays **DARK** behind `WhatsAppChannel.enabled`. New/extended register rows are in §2. The
+**creates a `Customer` from the conversation** (the customer's phone number), and adds an **automated send
+path** (deterministic, provably-non-AI auto-replies). **Status: BUILT / bukani-qa APPROVED (2026-06-25, branch
+`feat/m3b-backend`; migration `20260623124013_m3b_commerce_over_chat`).** The build is **sandbox-only with zero
+production PII**; live messaging stays **DARK** behind `WhatsAppChannel.enabled`. The **customer-aware consent
+seam** (`assertConsentGranted(..., ctx)`, default-deny-marketing) **is in place**; the per-customer revocation
+store remains **DESIGNED-NOT-BUILT (residual R1)** — see below. New/extended register rows are in §2. The
 following are routed to **bukani-compliance** (mirroring §7a / §7b precedents); **the rulings are NOT invented
-here.** bukani-security's STRIDE entry for this surface is **APPROVED-WITH-CONDITIONS** (Conditions 1–9 baked;
-residual R1 documented) — `docs/THREAT-MODEL.md` §8.
+here.** bukani-security's STRIDE entry for this surface is **APPROVED-WITH-CONDITIONS** (Conditions 1–9
+**verified in code** by bukani-qa; residual R1 documented) — `docs/THREAT-MODEL.md` §8.
 
 ### New processing introduced by M3-B
 - **`Customer` created from `waContactId` (phone PII into the commerce core).** On capture, the phone number

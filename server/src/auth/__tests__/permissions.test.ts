@@ -78,6 +78,16 @@ describe('permissions', () => {
     expect(hasPermission('AI_AGENT', [], 'whatsapp:manage_channel')).toBe(false);
   });
 
+  // M3-B auto-reply RBAC
+  it('owner has whatsapp:manage_autoreply', () => {
+    expect(hasPermission('MERCHANT_OWNER', [], 'whatsapp:manage_autoreply')).toBe(true);
+  });
+
+  it('staff and ai_agent lack whatsapp:manage_autoreply', () => {
+    expect(hasPermission('MERCHANT_STAFF', [], 'whatsapp:manage_autoreply')).toBe(false);
+    expect(hasPermission('AI_AGENT', [], 'whatsapp:manage_autoreply')).toBe(false);
+  });
+
   it('staff has all operational commerce permissions', () => {
     expect(hasPermission('MERCHANT_STAFF', [], 'catalog:read')).toBe(true);
     expect(hasPermission('MERCHANT_STAFF', [], 'catalog:write')).toBe(true);

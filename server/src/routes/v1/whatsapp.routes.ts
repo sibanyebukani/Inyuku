@@ -18,11 +18,19 @@ import {
   updateChannel,
 } from '../../services/whatsapp-channel.service.js';
 import { sendWhatsAppMessage } from '../../services/whatsapp-send.service.js';
+import { composeCatalogText } from '../../services/whatsapp-catalog-share.service.js';
 
 type BizParams = { businessId: string };
 type ChannelParams = { businessId: string; id: string };
 type TemplateParams = { businessId: string; id: string };
 type ConversationParams = { businessId: string; id: string };
+type RuleParams = { businessId: string; id: string };
+
+async function assertChannelBelongsToBusiness(businessId: string, channelId: string | null | undefined) {
+  if (!channelId) return;
+  const ch = await prisma.whatsAppChannel.findFirst({ where: { id: channelId, businessId } });
+  if (!ch) throw new NotFoundError('Channel not found');
+}
 
 const ChannelModeEnum = z.enum(['SANDBOX', 'LIVE']);
 
@@ -77,6 +85,39 @@ const SendMessageBody = z.object({
   templateName: z.string().optional(),
   templateParams: z.record(z.unknown()).optional(),
   language: z.string().optional(),
+});
+
+const ShareCatalogBody = z.object({
+  productIds: z.array(z.string().min(1)).optional(),
+  sendClass: z.enum(['TRANSACTIONAL', 'MARKETING']),
+});
+
+const AutoReplyRuleBody = z
+  .object({
+    channelId: z.string().min(1).nullable().optional(),
+    trigger: z.enum(['GREETING', 'KEYWORD', 'OUT_OF_HOURS']),
+    enabled: z.boolean().optional(),
+    keyword: z.string().min(1).nullable().optional(),
+    action: z.enum(['SEND_TEXT', 'SHARE_CATALOG']),
+    replyText: z.string().min(1).nullable().optional(),
+    hoursStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
+    hoursEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
+    daysActive: z.array(z.number().int().min(1).max(7)).optional(),
+    cooldownMinutes: z.number().int().min(0).optional(),
+  })
+  .refine((v) => v.trigger !== 'KEYWORD' || !!v.keyword, { message: 'keyword required for KEYWORD trigger', path: ['keyword'] })
+  .refine((v) => v.trigger !== 'OUT_OF_HOURS' || (!!v.hoursStart && !!v.hoursEnd), { message: 'hoursStart+hoursEnd required for OUT_OF_HOURS', path: ['hoursStart'] })
+  .refine((v) => v.action !== 'SEND_TEXT' || !!v.replyText, { message: 'replyText required for SEND_TEXT', path: ['replyText'] });
+
+const AutoReplyRulePatchBody = z.object({
+  channelId: z.string().min(1).nullable().optional(),
+  enabled: z.boolean().optional(),
+  keyword: z.string().min(1).nullable().optional(),
+  replyText: z.string().min(1).nullable().optional(),
+  hoursStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
+  hoursEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
+  daysActive: z.array(z.number().int().min(1).max(7)).optional(),
+  cooldownMinutes: z.number().int().min(0).optional(),
 });
 
 const ConversationListQuery = z.object({
@@ -238,6 +279,98 @@ export default async function whatsappRoutes(app: FastifyInstance) {
         return okEnvelope({ message: result.message, error: result.error });
       }
       return okEnvelope({ message: result.message });
+    },
+  );
+
+  app.post(
+    '/v1/businesses/:businessId/whatsapp/conversations/:id/share-catalog',
+    {
+      preHandler: [app.authenticate, app.requirePermission({ permission: 'whatsapp:send' })],
+      schema: { body: ShareCatalogBody },
+    },
+    async (req) => {
+      const { businessId, id } = req.params as ConversationParams;
+      const body = req.body as z.infer<typeof ShareCatalogBody>;
+      // tenant-validate the conversation (fail-closed, M3-A pattern)
+      const conv = await prisma.conversation.findUnique({ where: { id } });
+      if (!conv || conv.businessId !== businessId) throw new NotFoundError('Conversation not found');
+
+      const text = await composeCatalogText(businessId, body.productIds);
+      const result = await sendWhatsAppMessage(businessId, id, {
+        type: 'TEXT',
+        sendClass: body.sendClass,
+        body: text,
+      });
+      if (result.error) return okEnvelope({ message: result.message, error: result.error });
+      return okEnvelope({ message: result.message });
+    },
+  );
+
+  // ─── Auto-Reply Rules ─────────────────────────────────────────────────────────
+
+  app.get(
+    '/v1/businesses/:businessId/whatsapp/auto-reply-rules',
+    { preHandler: [app.authenticate, app.requirePermission({ permission: 'whatsapp:read' })] },
+    async (req) => {
+      const { businessId } = req.params as BizParams;
+      const rules = await prisma.whatsAppAutoReplyRule.findMany({ where: { businessId }, orderBy: { createdAt: 'asc' } });
+      return okEnvelope({ rules });
+    },
+  );
+
+  app.post(
+    '/v1/businesses/:businessId/whatsapp/auto-reply-rules',
+    { preHandler: [app.authenticate, app.requirePermission({ permission: 'whatsapp:manage_autoreply' })], schema: { body: AutoReplyRuleBody } },
+    async (req, reply) => {
+      const { businessId } = req.params as BizParams;
+      const body = req.body as z.infer<typeof AutoReplyRuleBody>;
+      await assertChannelBelongsToBusiness(businessId, body.channelId);
+      const rule = await prisma.whatsAppAutoReplyRule.create({
+        data: {
+          businessId,
+          channelId: body.channelId ?? null,
+          trigger: body.trigger,
+          enabled: body.enabled ?? false,
+          keyword: body.keyword ?? null,
+          action: body.action,
+          replyText: body.replyText ?? null,
+          hoursStart: body.hoursStart ?? null,
+          hoursEnd: body.hoursEnd ?? null,
+          daysActive: body.daysActive ?? [],
+          ...(body.cooldownMinutes !== undefined ? { cooldownMinutes: body.cooldownMinutes } : {}),
+        },
+      });
+      await auditLog({ ...buildAuditContext(req), userId: req.user!.sub, businessId, entity: 'whatsapp_auto_reply_rule', action: 'CREATE', entityId: rule.id, changes: { trigger: { old: null, new: rule.trigger }, action: { old: null, new: rule.action } } });
+      void reply.code(201);
+      return okEnvelope({ rule });
+    },
+  );
+
+  app.patch(
+    '/v1/businesses/:businessId/whatsapp/auto-reply-rules/:id',
+    { preHandler: [app.authenticate, app.requirePermission({ permission: 'whatsapp:manage_autoreply' })], schema: { body: AutoReplyRulePatchBody } },
+    async (req) => {
+      const { businessId, id } = req.params as RuleParams;
+      const existing = await prisma.whatsAppAutoReplyRule.findUnique({ where: { id } });
+      if (!existing || existing.businessId !== businessId) throw new NotFoundError('Rule not found');
+      const body = req.body as z.infer<typeof AutoReplyRulePatchBody>;
+      await assertChannelBelongsToBusiness(businessId, body.channelId);
+      const rule = await prisma.whatsAppAutoReplyRule.update({ where: { id }, data: body });
+      await auditLog({ ...buildAuditContext(req), userId: req.user!.sub, businessId, entity: 'whatsapp_auto_reply_rule', action: 'UPDATE', entityId: rule.id, changes: { enabled: { old: existing.enabled, new: rule.enabled } } });
+      return okEnvelope({ rule });
+    },
+  );
+
+  app.delete(
+    '/v1/businesses/:businessId/whatsapp/auto-reply-rules/:id',
+    { preHandler: [app.authenticate, app.requirePermission({ permission: 'whatsapp:manage_autoreply' })] },
+    async (req) => {
+      const { businessId, id } = req.params as RuleParams;
+      const existing = await prisma.whatsAppAutoReplyRule.findUnique({ where: { id } });
+      if (!existing || existing.businessId !== businessId) throw new NotFoundError('Rule not found');
+      await prisma.whatsAppAutoReplyRule.delete({ where: { id } });
+      await auditLog({ ...buildAuditContext(req), userId: req.user!.sub, businessId, entity: 'whatsapp_auto_reply_rule', action: 'DELETE', entityId: id, changes: {} });
+      return okEnvelope({ deleted: true });
     },
   );
 

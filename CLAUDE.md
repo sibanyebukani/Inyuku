@@ -1,6 +1,6 @@
 # Inyuku Digital — Project Intelligence (CLAUDE.md)
 
-> **Last synced:** 2026-06-23 (Documentation Lead, post-M3-B design-freeze; M0+M1+M2+M3-A merged, M3-B contracts FROZEN).
+> **Last synced:** 2026-06-25 (Documentation Lead, post-M3-B BUILD; M0+M1+M2+M3-A merged, **M3-B BUILD COMPLETE / QA APPROVED** on `feat/m3b-backend`, awaiting SRE/devops sign-off + merge to main).
 > This file reflects the **resolved** architecture. The roadmap's original "Clerk + Supabase" stack
 > **no longer applies** — see `docs/DECISIONS.md` and EA-ADR-014/015/016.
 > **Backend framework is Fastify 5 (TypeScript)** — EA-ADR-014 was **amended (2026-06-19)** and **EA-ADR-016**
@@ -28,11 +28,16 @@ digital payments (escrow), inventory & orders, a merchant dashboard, and an AI b
   (PR #11 / `e530574`) — signature-verified inbound webhook, durable Postgres outbox + drainer,
   `Conversation`/`Message` persistence, outbound send (free-form + template), 24h window tracking,
   approved-template registry, consent enforcement **stub** (default-deny), sub-processor **enable flag**
-  (default OFF, **ships DARK**). Backend only — no chat UI yet. **M3-B (commerce-over-chat + inbox UI) is
-  DESIGN COMPLETE: contracts FROZEN (2026-06-23), bukani-security STRIDE §8 APPROVED-WITH-CONDITIONS
-  (Conditions 1–9 baked; residual R1 documented) — ready for build; M3-B is the last MVP build milestone.**
-  **M4 (payments) / M5 (AI) deferred post-MVP** (MVP = WhatsApp commerce, no payments); lending
-  deferred. See `docs/ROADMAP.md`.
+  (default OFF, **ships DARK**). Backend only — no chat UI yet. **M3-B (commerce-over-chat) is
+  BUILD COMPLETE / QA APPROVED (2026-06-25, branch `feat/m3b-backend`):** contracts FROZEN (2026-06-23),
+  bukani-security STRIDE §8 APPROVED-WITH-CONDITIONS (Conditions 1–9 **verified in code** by bukani-qa;
+  residual R1 — per-customer revocation — consciously deferred as a GA blocker). Backend shipped:
+  `WhatsAppAutoReplyRule` + `Order.conversationId` linkage FK (migration
+  `20260623124013_m3b_commerce_over_chat`), server-composed `share-catalog` route, owner-only auto-reply
+  rule CRUD, a deterministic (provably non-AI) auto-reply evaluator, WhatsApp order capture over the M2
+  `clientId`/`sync` path, and the customer-aware consent seam (R1 stub). **Awaiting SRE/devops sign-off +
+  merge to main; M3-B is the last MVP build milestone.** **M4 (payments) / M5 (AI) deferred post-MVP**
+  (MVP = WhatsApp commerce, no payments); lending deferred. See `docs/ROADMAP.md`.
 
 ## 2. Resolved stack (Option A — full portfolio reference-architecture snap)
 
@@ -160,10 +165,18 @@ whatsapp:manage_autoreply (owner-only).
 - **M0-A** — repository foundation (in progress).
 - **M0-B** — Next migration (the lead Route Handler is a thin BFF proxy to the Fastify `/v1/leads`).
 - **M1** — **stand up the Fastify/Prisma backend + cross-cutting baseline + tenant model + R2**
-  (REWRITTEN from the roadmap's "Clerk + Supabase" M1).
+  (REWRITTEN from the roadmap's "Clerk + Supabase" M1). **MERGED.**
+- **M2** — Commerce Core (catalog / stock-as-movements / orders / customers / analytics + offline `sync`).
+  **MERGED** (PRs #6/#7/#8).
+- **M3-A** — WhatsApp BSP plumbing (signature-verified webhook, outbox/drainer, send choke-point, consent
+  stub, dark enable-flag). **MERGED** (PR #11 / `e530574`).
+- **M3-B** — Commerce-over-Chat (share-catalog, owner-only auto-reply rules, deterministic non-AI evaluator,
+  WhatsApp order capture, consent seam). **BUILD COMPLETE / QA APPROVED (2026-06-25, `feat/m3b-backend`);
+  awaiting SRE/devops sign-off + merge to main. Last MVP build milestone.**
+- **M4 (payments) / M5 (AI)** — deferred post-MVP (MVP = WhatsApp commerce, no payments); lending deferred.
 - **M0 long-lead tracks:** domain + DNS on Cloudflare; POPIA operator DPAs (Railway + R2); EU-region
   provisioning; Meta/360dialog verification; TradeSafe go-live.
-- **EA-ADR-014/015 sign-off gates the M1 build.**
+- **EA-ADR-014/015 sign-off gated the M1 build (SIGNED 2026-06-19).**
 
 ## 6. Binding EA-ADRs (portfolio decisions that govern Inyuku)
 
@@ -193,7 +206,7 @@ whatsapp:manage_autoreply (owner-only).
 |---|---|
 | `CLAUDE.md` | This file — resolved stack, conventions, binding EA-ADRs. |
 | `docs/PERSONAS.md` | **Personas** — Nomsa (P0), Sipho (RBAC cost-split), Thandi (validation/seams). |
-| `docs/ROADMAP.md` | **Milestone status** — M0/M1/M2 merged, M3-A merged / **M3-B design complete (contracts FROZEN, ready for build)**, M4/M5 deferred post-MVP, lending deferred; **MVP = WhatsApp commerce, no payments**. |
+| `docs/ROADMAP.md` | **Milestone status** — M0/M1/M2 merged, M3-A merged / **M3-B BUILD COMPLETE / QA APPROVED (`feat/m3b-backend`, awaiting SRE sign-off + merge)**, M4/M5 deferred post-MVP, lending deferred; **MVP = WhatsApp commerce, no payments**. |
 | `docs/API.md` | **M1 + M2 + M3-A + M3-B API contract** — envelope, auth/cookies/rotation, permission registry + role map, route lists (M1 + M2 commerce + M3-A WhatsApp webhook/channels/conversations/templates + M3-B share-catalog/auto-reply-rules + additive `channel`/`conversationId` on orders/sync), sync envelope, `/v1/leads`, env + Settings. |
 | `docs/SCHEMA.md` | **M1 + M2 + M3-A + M3-B Prisma schema** — table-by-table (incl. Product/StockMovement/Order/OrderLine/Customer/AnalyticsEvent + WhatsAppChannel/Conversation/Message/WhatsAppInboundEvent/WhatsAppTemplate + WhatsAppAutoReplyRule + `Order.conversationId`), tenancy/money/idempotency conventions, enums, audit tuples. |
 | `docs/DECISIONS.md` | Inyuku ADR-001..007 + **ADR-INY-008..012** (M1) + **ADR-INY-013..016** (M2 commerce) + **ADR-INY-017..020** (M3-A WhatsApp) + **ADR-INY-021..024** (M3-B commerce-over-chat; reference EA-ADR-014/015/016). |

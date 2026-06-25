@@ -67,8 +67,10 @@ afterEach(async () => {
   await prisma.stockMovement.deleteMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
   await prisma.orderLine.deleteMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
   await prisma.order.deleteMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
+  await prisma.conversation.deleteMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
   await prisma.customer.deleteMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
   await prisma.product.deleteMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
+  await prisma.whatsAppChannel.deleteMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
 });
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -373,6 +375,52 @@ describe('orders', () => {
       headers: authHeader(ownerToken),
     });
     expect(sr.json().data.stockLevel).toBe(9);
+  });
+
+  it('captures a WHATSAPP order linked to a conversation', async () => {
+    const prod = await createProduct(bizA.id, ownerToken);
+    const productId = prod.json().data.product.id as string;
+    const channel = await prisma.whatsAppChannel.create({
+      data: { businessId: bizA.id, phoneNumberId: `pn-${Date.now()}`, displayPhoneNumber: '+27825550000', mode: 'SANDBOX', enabled: false } as any,
+    });
+    const conv = await prisma.conversation.create({
+      data: { businessId: bizA.id, channelId: channel.id, waContactId: '27825550000' },
+    });
+    const r = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/orders`,
+      headers: { ...authHeader(ownerToken), 'content-type': 'application/json' },
+      payload: {
+        clientId: `wa-order-${Date.now()}`,
+        channel: 'WHATSAPP',
+        conversationId: conv.id,
+        status: 'COMPLETED',
+        lines: [{ productId, qty: 1 }],
+      },
+    });
+    expect(r.statusCode).toBe(201);
+    const order = r.json().data.order;
+    expect(order.channel).toBe('WHATSAPP');
+    expect(order.conversationId).toBe(conv.id);
+    expect(order.customerId).toBeTruthy();
+  });
+
+  it('404s a conversationId from another tenant', async () => {
+    const prod = await createProduct(bizA.id, ownerToken);
+    const productId = prod.json().data.product.id as string;
+    const otherChannel = await prisma.whatsAppChannel.create({
+      data: { businessId: bizB.id, phoneNumberId: `pn-b-${Date.now()}`, displayPhoneNumber: '+27825551111', mode: 'SANDBOX', enabled: false } as any,
+    });
+    const otherConv = await prisma.conversation.create({
+      data: { businessId: bizB.id, channelId: otherChannel.id, waContactId: '27825551111' },
+    });
+    const r = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/orders`,
+      headers: { ...authHeader(ownerToken), 'content-type': 'application/json' },
+      payload: { clientId: `x-${Date.now()}`, channel: 'WHATSAPP', conversationId: otherConv.id, lines: [{ productId, qty: 1 }] },
+    });
+    expect(r.statusCode).toBe(404);
   });
 
   it('void order → SALE_REVERSAL appended; stock restored', async () => {

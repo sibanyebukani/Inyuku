@@ -4,6 +4,7 @@ import { createOrder } from './order.service.js';
 import { createCustomer, updateCustomer } from './customer.service.js';
 import { hasPermission } from '../auth/permissions.js';
 import { prisma } from '../db.js';
+import { orderFieldsSchema } from '../schemas/order.schema.js';
 import type { Membership } from '@prisma/client';
 
 export type SyncOpStatus = 'APPLIED' | 'DUPLICATE' | 'CONFLICT' | 'REJECTED';
@@ -135,15 +136,16 @@ export async function applySyncOp(
       if (!hasPermission(role, perms, 'order:write')) {
         return { clientId: op.clientId, status: 'REJECTED', error: 'FORBIDDEN' };
       }
-      const payload = op.payload as {
-        customerId?: string;
-        status?: 'DRAFT' | 'COMPLETED';
-        paymentState?: 'PAID' | 'UNPAID';
-        lines: Array<{ productId: string; qty: number }>;
-      };
+      const parsed = orderFieldsSchema.safeParse(op.payload);
+      if (!parsed.success) {
+        return { clientId: op.clientId, status: 'REJECTED', error: 'VALIDATION' };
+      }
+      const payload = parsed.data;
       const { order, duplicate } = await createOrder({
         businessId,
         clientId: op.clientId,
+        channel: payload.channel,
+        conversationId: payload.conversationId,
         customerId: payload.customerId,
         status: payload.status,
         paymentState: payload.paymentState,

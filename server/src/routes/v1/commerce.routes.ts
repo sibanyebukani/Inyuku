@@ -36,6 +36,7 @@ import {
 } from '../../services/customer.service.js';
 import { getDashboard } from '../../services/dashboard.service.js';
 import { applySyncOp } from '../../services/sync.service.js';
+import { createOrderBodySchema } from '../../schemas/order.schema.js';
 
 type BizParams = { businessId: string };
 type IdParams = { businessId: string; id: string };
@@ -67,14 +68,7 @@ const CreateMovementBody = z.object({
   occurredAt: z.string().datetime().optional(),
 });
 
-const CreateOrderBody = z.object({
-  clientId: z.string().min(1),
-  customerId: z.string().optional(),
-  status: z.enum(['DRAFT', 'COMPLETED']).optional(),
-  paymentState: z.enum(['PAID', 'UNPAID']).optional(),
-  lines: z.array(z.object({ productId: z.string().min(1), qty: z.number().int().min(1) })).min(1),
-  occurredAt: z.string().datetime().optional(),
-});
+const CreateOrderBody = createOrderBodySchema;
 
 const SetPaymentBody = z.object({
   paymentState: z.enum(['PAID', 'UNPAID']),
@@ -341,6 +335,8 @@ export default async function commerceRoutes(app: FastifyInstance) {
         businessId,
         clientId: body.clientId,
         customerId: body.customerId,
+        conversationId: body.conversationId,
+        channel: body.channel,
         status: body.status,
         paymentState: body.paymentState,
         lines: body.lines,

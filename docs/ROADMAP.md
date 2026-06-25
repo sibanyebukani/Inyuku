@@ -1,6 +1,6 @@
 # Inyuku Digital — Milestone Roadmap
 
-> **Owner:** bukani-docs · **Last synced:** 2026-06-23 (post-M3-A merge).
+> **Owner:** bukani-docs · **Last synced:** 2026-06-25 (post-M3-B build / QA APPROVED).
 > Quick milestone status. The full program design is
 > `docs/superpowers/specs/2026-06-18-inyuku-full-platform-roadmap-design.md`; decisions are in
 > `docs/DECISIONS.md`; M2 contracts are in `docs/specs/2026-06-21-m2-commerce-core-contracts.md`;
@@ -19,7 +19,7 @@ stays deferred.**
 | **M0** | Repo foundation + Next.js migration (M0-A / M0-B / M0-C) | **Done (merged)** |
 | **M1** | Fastify/Prisma platform foundation: auth, tenancy, RBAC, settings, audit, consent, R2 | **Done (merged)** |
 | **M2** | **Commerce Core** — onboarding, catalog, inventory, orders, customers, dashboard, offline-first sync, PostHog analytics, staff RBAC split | **Done (merged — PRs #6/#7/#8)** |
-| **M3** | WhatsApp commerce (360dialog) | **In progress — M3-A merged (#11); M3-B design complete / contracts FROZEN — ready for build** |
+| **M3** | WhatsApp commerce (360dialog) | **M3-A merged (#11); M3-B BUILD COMPLETE / QA APPROVED (2026-06-25, `feat/m3b-backend`) — awaiting SRE/devops sign-off + merge to main** |
 | **M4** | Payments / TradeSafe escrow | **Deferred (post-MVP)** |
 | **M5** | AI Business Assistant (`lib/ai.js`) | **Deferred (post-MVP)** |
 | (deferred) | Lending / credit (verified-transaction data stays internal analytics, ADR-006) | Deferred |
@@ -37,26 +37,32 @@ consent enforcement **default-deny stub** and the sub-processor **enable flag** 
 default `false` — **ships DARK**, sandbox-only). New permissions `whatsapp:read` / `whatsapp:send` /
 `whatsapp:manage_channel`. **No merchant-facing chat UI yet.** See `docs/API.md`, `docs/SCHEMA.md`.
 
-### M3-B — commerce-over-chat + inbox UI (DESIGN COMPLETE / contracts FROZEN — ready for build)
+### M3-B — commerce-over-chat (BUILD COMPLETE / QA APPROVED — `feat/m3b-backend`)
 
-**Status:** **Design complete; contracts FROZEN (2026-06-23); bukani-security STRIDE
-APPROVED-WITH-CONDITIONS** (Conditions 1–9 baked into the contract; residual R1 documented). **Build follows.**
-**M3-B is the last MVP build milestone** (MVP = WhatsApp commerce, no payments — M4/M5 deferred). Source of
-truth: `docs/specs/2026-06-23-m3b-commerce-over-chat-product-brief.md` (7 stories M3B-S1..S7) +
+**Status:** **Backend build complete; bukani-qa verdict APPROVED (2026-06-25) on `feat/m3b-backend`.**
+Contracts FROZEN (2026-06-23); bukani-security STRIDE **APPROVED-WITH-CONDITIONS** (Conditions 1–9
+**verified in code**; residual R1 consciously deferred as a GA blocker). Migration
+`20260623124013_m3b_commerce_over_chat`. **M3-B is the last MVP build milestone** (MVP = WhatsApp commerce,
+no payments — M4/M5 deferred). Source of truth:
+`docs/specs/2026-06-23-m3b-commerce-over-chat-product-brief.md` (7 stories M3B-S1..S7) +
 `docs/specs/2026-06-23-m3b-commerce-over-chat-contracts.md` (FROZEN).
 
-**In scope (7 stories):** inbox read (S1) + window-aware free-form reply (S2) — UI over frozen M3-A reads/send;
-order capture from chat → M2 `Order(channel = WHATSAPP)` + customer link/create from `waContactId` + SALE
-ledger decrement, converging exactly once offline via the existing `clientId`/`sync` path (S3); catalog share
-as a server-composed plain ZAR-priced text list (S4); deterministic, **provably non-AI** auto-replies
-(greeting / keyword / out-of-hours, SAST, loop-safe — `lib/ai.js` never on this surface; S5); customer-aware
-consent enforcement under the default-deny stub (S6); order/payment-status notifications (S7).
+**Next steps:** bukani-docs (docs sync) ✅ → SRE/devops sign-off → merge `feat/m3b-backend` to `main`.
 
-**Frozen seams / new schema:** `Order.conversationId` (nullable linkage FK, ADR-INY-021); the
+**Shipped (7 stories, backend):** inbox read (S1) + window-aware free-form reply (S2) over the frozen M3-A
+reads/send; order capture from chat → M2 `Order(channel = WHATSAPP)` + customer link/create from the
+conversation (normalised MSISDN, idempotent upsert) + SALE ledger decrement, converging exactly once offline
+via the existing `clientId`/`sync` path (S3); catalog share as a server-composed plain ZAR-priced text list,
+sell-price-only (S4); deterministic, **provably non-AI** auto-replies (greeting / keyword / out-of-hours, SAST,
+cooldown-throttled — `lib/ai.js` never imported on this surface, CI-asserted; S5); customer-aware consent
+enforcement under the default-deny stub (S6); order/payment-status notifications (S7).
+
+**Shipped schema / seams:** `Order.conversationId` (nullable linkage FK, ADR-INY-021); the
 `WhatsAppAutoReplyRule` table + `AutoReplyTrigger`/`AutoReplyAction` enums (ADR-INY-022); new owner-only
-`whatsapp:manage_autoreply` permission; the customer-aware `assertConsentGranted(..., ctx)` signature with the
-per-customer revocation store **DESIGNED-NOT-BUILT (residual R1)**. ADRs **ADR-INY-021..024** (M3-A ended at
-020). Live messaging stays **DARK** behind `WhatsAppChannel.enabled` (E3).
+`whatsapp:manage_autoreply` permission; the customer-aware `assertConsentGranted(..., ctx)` signature. The
+per-customer revocation store remains **DESIGNED-NOT-BUILT (residual R1)** — consciously deferred to the E2
+ruling. ADRs **ADR-INY-021..024** (M3-A ended at 020). Live messaging stays **DARK** behind
+`WhatsAppChannel.enabled` (E3).
 
 ### GA gates (M3)
 
@@ -69,9 +75,10 @@ per-customer revocation store **DESIGNED-NOT-BUILT (residual R1)**. ADRs **ADR-I
 - **WhatsApp message-content retention period** (POPIA §6 TBD) — config value, not hard-coded.
 - bukani-security M3-A webhook STRIDE gate: **APPROVED-WITH-CONDITIONS** — the 5 conditions are implemented
   in M3-A (`docs/THREAT-MODEL.md` §7). Live-number cutover re-gates under EA-ADR-015.
-- bukani-security **M3-B** commerce-over-chat STRIDE gate: **APPROVED-WITH-CONDITIONS** — Conditions 1–9 baked
-  into the frozen contract; residual **R1** (per-customer revocation DESIGNED-NOT-BUILT — default-deny-marketing
-  in the sandbox slice) consciously accepted as a **GA blocker** (`docs/THREAT-MODEL.md` §8). Escalations
+- bukani-security **M3-B** commerce-over-chat STRIDE gate: **APPROVED-WITH-CONDITIONS** — Conditions 1–9
+  **verified in code** by bukani-qa (2026-06-25); residual **R1** (per-customer revocation DESIGNED-NOT-BUILT —
+  default-deny-marketing in the sandbox slice) consciously accepted as a **GA blocker** (`docs/THREAT-MODEL.md`
+  §8). Escalations
   **E1** (per-tenant WhatsApp cost ceiling + kill switch — founder/EA), **E2** (responsible-party ruling),
   **E3** (360dialog DPA/EU-pin), **E4** (Message→Order/Customer retention) tracked as founder/compliance /
   live-cutover gates — **not** M3-B sandbox-build blockers.

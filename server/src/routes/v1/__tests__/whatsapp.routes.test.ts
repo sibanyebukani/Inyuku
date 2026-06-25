@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { buildApp } from '../../../app.js';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../../db.js';
@@ -81,6 +81,7 @@ afterEach(async () => {
   await prisma.message.deleteMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
   await prisma.conversation.deleteMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
   await prisma.whatsAppTemplate.deleteMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
+  await prisma.whatsAppAutoReplyRule.deleteMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
   await prisma.whatsAppChannel.deleteMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
 });
 
@@ -552,5 +553,190 @@ describe('send', () => {
       where: { entity: 'whatsapp_message', action: 'SEND', businessId: bizA.id },
     });
     expect(audits).toHaveLength(1);
+  });
+});
+
+describe('share-catalog', () => {
+  let convA: { id: string };
+
+  beforeEach(async () => {
+    const channelRes = await createChannel(ownerToken, { mode: 'SANDBOX', enabled: false });
+    const channel = channelRes.json().data.channel;
+    convA = await prisma.conversation.create({
+      data: {
+        businessId: bizA.id,
+        channelId: channel.id,
+        waContactId: '27821234567',
+        status: 'OPEN',
+        lastInboundAt: new Date(),
+      },
+    });
+  });
+
+  it('shares a catalog into a conversation (whatsapp:send)', async () => {
+    await prisma.product.create({
+      data: { businessId: bizA.id, clientId: `cat-${Date.now()}`, name: 'Catalog Item', sellPriceCents: 1234, status: 'ACTIVE' },
+    });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ messages: [{ id: 'wamid.catalog' }] }),
+      text: async () => '',
+    } as Response);
+
+    const r = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/whatsapp/conversations/${convA.id}/share-catalog`,
+      headers: { ...authHeader(ownerToken), 'content-type': 'application/json' },
+      payload: { sendClass: 'TRANSACTIONAL' },
+    });
+    expect(r.statusCode).toBe(200);
+    // an OUTBOUND TEXT message was created
+    const msg = await prisma.message.findFirst({ where: { conversationId: convA.id, direction: 'OUTBOUND' }, orderBy: { createdAt: 'desc' } });
+    expect(msg!.type).toBe('TEXT');
+    expect(msg!.body).toContain('—');
+  });
+
+  it('shared catalog text never contains a cost value (Condition 2)', async () => {
+    // product with a distinctive cost
+    const p = await prisma.product.create({ data: { businessId: bizA.id, clientId: `cs-${Date.now()}`, name: 'CostCheck', sellPriceCents: 9999, costPriceCents: 4242, status: 'ACTIVE' } });
+    await prisma.stockMovement.create({ data: { businessId: bizA.id, clientId: `csm-${Date.now()}`, productId: p.id, type: 'OPENING', qtyDelta: 5, occurredAt: new Date() } });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ messages: [{ id: 'wamid.costcheck' }] }),
+      text: async () => '',
+    } as Response);
+    const r = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/whatsapp/conversations/${convA.id}/share-catalog`,
+      headers: { ...authHeader(staffToken), 'content-type': 'application/json' },
+      payload: { sendClass: 'TRANSACTIONAL', productIds: [p.id] },
+    });
+    expect(r.statusCode).toBe(200);
+    const msg = await prisma.message.findFirst({ where: { conversationId: convA.id, direction: 'OUTBOUND' }, orderBy: { createdAt: 'desc' } });
+    expect(msg!.body).toContain('R99.99');
+    expect(msg!.body).not.toContain('42.42');
+    expect(msg!.body).not.toContain('4242');
+  });
+});
+
+describe('auto-reply rule CRUD', () => {
+  it('owner creates a KEYWORD rule', async () => {
+    const r = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/whatsapp/auto-reply-rules`,
+      headers: { ...authHeader(ownerToken), 'content-type': 'application/json' },
+      payload: { trigger: 'KEYWORD', keyword: 'hours', action: 'SEND_TEXT', replyText: 'We are open 9-5', enabled: true },
+    });
+    expect(r.statusCode).toBe(201);
+    expect(r.json().data.rule.keyword).toBe('hours');
+  });
+
+  it('rejects a KEYWORD rule with no keyword', async () => {
+    const r = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/whatsapp/auto-reply-rules`,
+      headers: { ...authHeader(ownerToken), 'content-type': 'application/json' },
+      payload: { trigger: 'KEYWORD', action: 'SEND_TEXT', replyText: 'x' },
+    });
+    expect(r.statusCode).toBe(400);
+  });
+
+  it('staff cannot create a rule (403)', async () => {
+    const r = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/whatsapp/auto-reply-rules`,
+      headers: { ...authHeader(staffToken), 'content-type': 'application/json' },
+      payload: { trigger: 'GREETING', action: 'SEND_TEXT', replyText: 'Hi' },
+    });
+    expect(r.statusCode).toBe(403);
+  });
+
+  it('staff can list rules (whatsapp:read)', async () => {
+    const r = await app.inject({ method: 'GET', url: `/v1/businesses/${bizA.id}/whatsapp/auto-reply-rules`, headers: authHeader(staffToken) });
+    expect(r.statusCode).toBe(200);
+    expect(Array.isArray(r.json().data.rules)).toBe(true);
+  });
+
+  it('rejects POST with a channelId from another tenant (404)', async () => {
+    const foreignChannel = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizB.id}/whatsapp/channels`,
+      headers: authHeader(ownerTokenB),
+      payload: { phoneNumberId: `foreign-${Date.now()}`, displayPhoneNumber: '+27820000001', mode: 'SANDBOX', enabled: false },
+    });
+    expect(foreignChannel.statusCode).toBe(201);
+    const foreignChannelId = foreignChannel.json().data.channel.id;
+
+    const r = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/whatsapp/auto-reply-rules`,
+      headers: authHeader(ownerToken),
+      payload: { trigger: 'GREETING', action: 'SEND_TEXT', replyText: 'Hi', channelId: foreignChannelId },
+    });
+    expect(r.statusCode).toBe(404);
+  });
+
+  it('accepts POST with a same-tenant channelId', async () => {
+    const ownChannel = await createChannel(ownerToken);
+    expect(ownChannel.statusCode).toBe(201);
+    const channelId = ownChannel.json().data.channel.id;
+
+    const r = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/whatsapp/auto-reply-rules`,
+      headers: authHeader(ownerToken),
+      payload: { trigger: 'GREETING', action: 'SEND_TEXT', replyText: 'Hi', channelId },
+    });
+    expect(r.statusCode).toBe(201);
+  });
+
+  it('rejects PATCH with a channelId from another tenant (404)', async () => {
+    const own = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/whatsapp/auto-reply-rules`,
+      headers: authHeader(ownerToken),
+      payload: { trigger: 'GREETING', action: 'SEND_TEXT', replyText: 'Hi' },
+    });
+    expect(own.statusCode).toBe(201);
+    const ruleId = own.json().data.rule.id;
+
+    const foreignChannel = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizB.id}/whatsapp/channels`,
+      headers: authHeader(ownerTokenB),
+      payload: { phoneNumberId: `foreign2-${Date.now()}`, displayPhoneNumber: '+27820000002', mode: 'SANDBOX', enabled: false },
+    });
+    const foreignChannelId = foreignChannel.json().data.channel.id;
+
+    const r = await app.inject({
+      method: 'PATCH',
+      url: `/v1/businesses/${bizA.id}/whatsapp/auto-reply-rules/${ruleId}`,
+      headers: authHeader(ownerToken),
+      payload: { channelId: foreignChannelId },
+    });
+    expect(r.statusCode).toBe(404);
+  });
+
+  it('accepts PATCH with a same-tenant channelId', async () => {
+    const own = await app.inject({
+      method: 'POST',
+      url: `/v1/businesses/${bizA.id}/whatsapp/auto-reply-rules`,
+      headers: authHeader(ownerToken),
+      payload: { trigger: 'GREETING', action: 'SEND_TEXT', replyText: 'Hi' },
+    });
+    const ruleId = own.json().data.rule.id;
+    const ownChannel = await createChannel(ownerToken);
+    const channelId = ownChannel.json().data.channel.id;
+
+    const r = await app.inject({
+      method: 'PATCH',
+      url: `/v1/businesses/${bizA.id}/whatsapp/auto-reply-rules/${ruleId}`,
+      headers: authHeader(ownerToken),
+      payload: { channelId },
+    });
+    expect(r.statusCode).toBe(200);
+    expect(r.json().data.rule.channelId).toBe(channelId);
   });
 });

@@ -10,6 +10,10 @@ import { prisma } from '../db.js';
 import { auditLog } from '../utils/audit-logger.js';
 import { checkRateLimit } from '../utils/rate-limit.js';
 import { maskPhone } from '../utils/pii-mask.js';
+import { logger } from '../utils/logger.js';
+import { evaluateAutoReplies } from './whatsapp-autoreply.service.js';
+
+const log = logger('whatsapp-ingest');
 
 export const INGEST_PER_TENANT_LIMIT = 300;
 export const INGEST_WINDOW_MS = 60 * 1000;
@@ -181,13 +185,20 @@ export async function processInboundEvent(
     );
 
     const { type, body, mediaKey, mediaMimeType } = mapInboundMessage(msg);
+    const providerMessageId = msg.id ?? null;
+
+    const alreadyExists = providerMessageId
+      ? !!(await prisma.message.findUnique({
+          where: { businessId_providerMessageId: { businessId, providerMessageId } },
+        }))
+      : false;
 
     await prisma.message.createMany({
       data: [
         {
           businessId,
           conversationId: conversation.id,
-          providerMessageId: msg.id ?? null,
+          providerMessageId,
           direction: 'INBOUND',
           type,
           body,
@@ -199,6 +210,20 @@ export async function processInboundEvent(
       ],
       skipDuplicates: true,
     });
+
+    if (providerMessageId && !alreadyExists && (type === 'TEXT' || type === 'INTERACTIVE')) {
+      const persisted = await prisma.message.findUnique({
+        where: { businessId_providerMessageId: { businessId, providerMessageId } },
+      });
+      if (persisted) {
+        try {
+          await evaluateAutoReplies(businessId, conversation, persisted);
+        } catch (err) {
+          // auto-reply failures must never break inbound ingestion
+          log.error('auto-reply evaluator threw', { err: String(err), businessId, messageId: persisted.id });
+        }
+      }
+    }
 
     if (msg.id) {
       await auditLog({
@@ -242,7 +267,7 @@ async function upsertConversation(
   channelId: string,
   waContactId: string,
   occurredAt: Date,
-): Promise<{ id: string; lastInboundAt: Date | null }> {
+): Promise<import('@prisma/client').Conversation> {
   const existing = await prisma.conversation.findUnique({
     where: { businessId_channelId_waContactId: { businessId, channelId, waContactId } },
   });
