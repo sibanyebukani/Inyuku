@@ -9,17 +9,24 @@ export function useSidebarExpanded(): { expanded: boolean; toggle: () => void } 
   const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored !== null) setExpanded(stored === 'true');
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY);
+      if (stored !== null) setExpanded(stored === 'true');
+    } catch {
+      // Blocked storage — fall back to the default (expanded).
+    }
   }, []);
 
   const toggle = useCallback(() => {
-    setExpanded((prev) => {
-      const next = !prev;
+    const next = !expanded;
+    try {
       window.localStorage.setItem(STORAGE_KEY, String(next));
-      return next;
-    });
-  }, []);
+    } catch {
+      // Blocked storage (private browsing, blocked site data) — the in-memory
+      // state still flips correctly for the current page view.
+    }
+    setExpanded(next);
+  }, [expanded]);
 
   return { expanded, toggle };
 }

@@ -6,7 +6,11 @@ const STORAGE_KEY = 'inyuku_merchant_dark_mode';
 
 function readStoredPreference(): boolean {
   if (typeof window === 'undefined') return false;
-  return window.localStorage.getItem(STORAGE_KEY) === 'true';
+  try {
+    return window.localStorage.getItem(STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
 }
 
 function applyToDocument(isDark: boolean): void {
@@ -24,13 +28,16 @@ export function useDarkMode(): { isDark: boolean; toggle: () => void } {
   }, []);
 
   const toggle = useCallback(() => {
-    setIsDark((prev) => {
-      const next = !prev;
-      applyToDocument(next);
+    const next = !isDark;
+    applyToDocument(next);
+    try {
       window.localStorage.setItem(STORAGE_KEY, String(next));
-      return next;
-    });
-  }, []);
+    } catch {
+      // Blocked storage (private browsing, blocked site data) — the in-memory
+      // state still flips correctly for the current page view.
+    }
+    setIsDark(next);
+  }, [isDark]);
 
   return { isDark, toggle };
 }
