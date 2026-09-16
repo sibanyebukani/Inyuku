@@ -4,10 +4,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within, waitFor } from '@testing-library/react';
 import MerchantLayout from './layout';
 import { useConversationStore } from '@/lib/whatsapp/store';
+import { logout } from '@/lib/auth';
 
+const push = vi.fn();
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push }),
   usePathname: () => '/orders',
+}));
+
+vi.mock('@/lib/auth', () => ({
+  logout: vi.fn(),
 }));
 
 vi.mock('@/lib/offline/useOnline', () => ({ useOnline: () => true }));
@@ -33,6 +39,8 @@ function desktopNav() {
 describe('MerchantLayout', () => {
   beforeEach(() => {
     useConversationStore.setState({ conversations: [], stale: false, loading: false, loaded: false, lastFetchedAt: null });
+    push.mockClear();
+    vi.mocked(logout).mockReset();
   });
 
   it('renders nav links including WhatsApp and highlights the active route', () => {
@@ -130,6 +138,23 @@ describe('MerchantLayout', () => {
     await userEvent.click(screen.getByTestId('sheet-backdrop'));
     await waitFor(() => {
       expect(screen.queryByRole('navigation', { name: 'Merchant menu' })).not.toBeInTheDocument();
+    });
+  });
+
+  it('still redirects to /login when logout() rejects (offline)', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event');
+    vi.mocked(logout).mockRejectedValueOnce(new Error('Network error'));
+    render(
+      <MerchantLayout>
+        <div>Page</div>
+      </MerchantLayout>,
+    );
+    const trigger = screen.getByText('e').closest('button');
+    expect(trigger).toBeTruthy();
+    await userEvent.click(trigger!);
+    await userEvent.click(screen.getByRole('button', { name: /log out/i }));
+    await waitFor(() => {
+      expect(push).toHaveBeenCalledWith('/login');
     });
   });
 });

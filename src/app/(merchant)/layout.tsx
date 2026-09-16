@@ -48,7 +48,12 @@ function NavLink({
           : 'text-text-secondary dark:text-neutral-400 hover:bg-cream dark:hover:bg-neutral-800',
       )}
     >
-      <Icon className="h-5 w-5 flex-shrink-0" />
+      <span className="relative flex-shrink-0">
+        <Icon className="h-5 w-5" />
+        {!expanded && badge != null && badge > 0 && (
+          <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-accent-orange" />
+        )}
+      </span>
       {expanded && (
         <span className="text-sm font-medium flex items-center gap-1.5 truncate">
           {item.label}
@@ -101,7 +106,15 @@ function NavGroups({
   );
 }
 
-function UserMenu({ name, email, onLogout }: { name: string; email: string; onLogout: () => void }) {
+function UserMenu({
+  name,
+  email,
+  onLogout,
+}: {
+  name: string;
+  email: string;
+  onLogout: () => void | Promise<void>;
+}) {
   const initials = name
     .split(' ')
     .map((n) => n[0])
@@ -125,7 +138,12 @@ function UserMenu({ name, email, onLogout }: { name: string; email: string; onLo
       }
     >
       <button
-        onClick={onLogout}
+        onClick={() => {
+          // handleLogout always redirects (see its own try/finally), but its
+          // promise still rejects on failure — swallow here so a fire-and-forget
+          // click handler never surfaces an unhandled promise rejection.
+          Promise.resolve(onLogout()).catch(() => {});
+        }}
         className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
       >
         <LogOut className="h-4 w-4" />
@@ -155,17 +173,21 @@ function MerchantShell({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   const handleLogout = useCallback(async () => {
-    await logout();
-    router.push('/login');
+    try {
+      await logout();
+    } finally {
+      router.push('/login');
+    }
   }, [router]);
 
-  const mobileTabItems = [navGroups[0].items[0], ...navGroups.slice(1).flatMap((g) => g.items)].slice(0, 4);
+  const mobileTabItems = navGroups.flatMap((g) => g.items).slice(0, 4);
 
   return (
     <div className="min-h-screen bg-cream dark:bg-neutral-950">
       <div
         className={cn(
-          'px-3 py-1 text-center text-xs',
+          'px-3 py-1 text-center text-xs transition-all duration-300',
+          expanded ? 'lg:ml-64' : 'lg:ml-16',
           online ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800',
         )}
       >
@@ -174,7 +196,7 @@ function MerchantShell({ children }: { children: React.ReactNode }) {
 
       {/* Mobile top bar */}
       <nav
-        aria-label="Merchant mobile"
+        aria-label="Merchant mobile top"
         className="lg:hidden sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border-light dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur px-4"
       >
         <span className="text-lg font-extrabold tracking-tight text-text-primary dark:text-neutral-100">Inyuku</span>
@@ -250,18 +272,18 @@ function MerchantShell({ children }: { children: React.ReactNode }) {
         </nav>
       </Sheet>
 
-      <main
+      <div
         className={cn(
           'px-4 py-6 pb-20 lg:pb-8 transition-all duration-300',
           expanded ? 'lg:ml-64' : 'lg:ml-16',
         )}
       >
         {children}
-      </main>
+      </div>
 
       {/* Mobile bottom tab bar */}
       <nav
-        aria-label="Merchant mobile"
+        aria-label="Merchant mobile tabs"
         className="lg:hidden fixed bottom-0 left-0 right-0 z-30 flex h-14 items-center justify-around border-t border-border-light dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur"
       >
         {mobileTabItems.map((item) => {
@@ -289,6 +311,8 @@ function MerchantShell({ children }: { children: React.ReactNode }) {
 
 export default function MerchantLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  // Stabilise the callback so SessionProvider's getMe() effect does not re-fire
+  // on every render (router reference changes each render in Next.js App Router).
   const onUnauthenticated = useCallback(() => router.push('/login'), [router]);
   return (
     <SessionProvider
