@@ -148,7 +148,10 @@ export default function SignupPage() {
                   onChange={(e) => setForm((s) => ({ ...s, acceptTerms: e.target.checked }))}
                   className="mt-0.5"
                 />
-                I accept the Terms of Service
+                I accept the{' '}
+                <Link href="/terms" target="_blank" rel="noopener noreferrer" className="text-accent-orange hover:underline">
+                  Terms of Service
+                </Link>
               </label>
               <Button type="submit" disabled={loading} className="w-full">
                 {loading ? 'Creating your shop…' : 'Create account'}
