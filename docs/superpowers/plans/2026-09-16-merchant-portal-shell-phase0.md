@@ -37,8 +37,11 @@ in a rewritten `src/app/(merchant)/layout.tsx`.
 - No backend/API changes. Consume `/v1/auth/login`, `/v1/auth/signup`, `/v1/auth/me`,
   `/v1/auth/logout` exactly as they exist today.
 - Match each file's existing quote/semicolon convention on sight: `src/app/login/page.tsx` has
-  no semicolons (marketing-style) — keep it that way. Every other new/rewritten file in this
-  plan uses semicolons, matching `(merchant)/`, `src/lib/`, and `src/components/PaymentToggle.tsx`.
+  no semicolons (marketing-style) — keep it that way. `src/app/signup/page.tsx` (Task 13) is a
+  new file but pairs directly with `login/page.tsx` as the auth-page pair (same composition, same
+  directory pattern) and matches its no-semicolon style rather than the rule below. Every other
+  new/rewritten file in this plan uses semicolons, matching `(merchant)/`, `src/lib/`, and
+  `src/components/PaymentToggle.tsx`.
 - New component tests need `// @vitest-environment jsdom` as the first line (project default
   test environment is `node`).
 
