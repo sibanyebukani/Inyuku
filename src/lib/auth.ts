@@ -33,3 +33,22 @@ export async function logout(): Promise<void> {
 export async function getMe(): Promise<MeResponse> {
   return getJson<MeResponse>('/v1/auth/me');
 }
+
+export interface SignupInput {
+  email: string;
+  password: string;
+  name: string;
+  phone?: string;
+  businessName: string;
+  acceptTerms: boolean;
+}
+
+export interface SignupResult {
+  user: SafeUser;
+  business: { id: string; name: string; slug: string };
+  membership: { id: string; role: string };
+}
+
+export async function signup(input: SignupInput): Promise<SignupResult> {
+  return postJson<SignupResult>('/v1/auth/signup', input);
+}
