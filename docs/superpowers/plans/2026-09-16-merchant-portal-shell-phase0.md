@@ -128,7 +128,10 @@ git commit -m "feat(ui): add cn() className utility"
 - Produces: `Button` — a `React.forwardRef<HTMLButtonElement, ButtonProps>` component.
   `ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement>` plus
   `{ variant?: 'primary' | 'secondary' | 'ghost' | 'destructive'; size?: 'sm' | 'md' | 'icon' }`.
-  Default `variant='primary'`, `size='md'`. Consumed by Tasks 11–13.
+  Default `variant='primary'`, `size='md'`. Consumed by Tasks 12–13 (login/signup submit
+  buttons). Task 11's shell hand-rolls its own buttons (collapse toggle, dark-mode toggle,
+  mobile hamburger/close) rather than adopting this primitive — noted as a Phase 1+ cleanup
+  item during the final whole-branch review, not a defect in what shipped.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -241,7 +244,13 @@ git commit -m "feat(ui): add Button primitive"
 - Consumes: `cn` from `@/lib/utils`.
 - Produces: `Card`, `CardHeader`, `CardTitle`, `CardContent` — each
   `React.HTMLAttributes<HTMLDivElement>` (or `HTMLHeadingElement` for `CardTitle`) plain
-  function components accepting `className` + `children`. Consumed by Tasks 11–13.
+  function components accepting `className` + `children`. **Not actually consumed by any
+  Phase 0 task** — Tasks 12/13's login/signup cards were specified with hand-rolled markup
+  (matching the pre-existing login page's established composition) rather than this
+  primitive. This line originally claimed "Consumed by Tasks 11–13"; that claim was wrong
+  and is corrected here following the final whole-branch review, which caught the
+  self-contradiction against Task 12/13's own given code. `Card` is genuinely unused in
+  Phase 0 — available for Phase 1+ to adopt, per §5's original framing.
 
 - [ ] **Step 1: Write the failing test**
 
